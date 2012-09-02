@@ -1,0 +1,17 @@
+#CFLAGS = -Wall -Wextra -ansi -pedantic -Werror -O2 -fomit-frame-pointer -frename-registers -funroll-loops -fPIC -I.
+CFLAGS = -Wall -Wextra -ansi -pedantic -Werror -g -fPIC -I.
+LDFLAGS = -L.
+
+all:	libsmacker.so driver
+
+libsmacker.so:	smacker.o
+	gcc $(LDFLAGS) -dynamiclib smacker.o -o libsmacker.so
+
+smacker.o:	smacker.c
+	gcc $(CFLAGS) -c smacker.c
+
+driver:	libsmacker.so
+	gcc $(LDFLAGS) -lsmacker driver.c -o driver
+clean:
+	rm -f libsmacker.* *.o driver
+
