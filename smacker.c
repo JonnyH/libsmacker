@@ -27,27 +27,6 @@
 /* for error handling */
 static jmp_buf jb;
 
-unsigned char palmap[64] = {
-   0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
-   0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C,
-   0x41, 0x45, 0x49, 0x4D, 0x51, 0x55, 0x59, 0x5D,
-   0x61, 0x65, 0x69, 0x6D, 0x71, 0x75, 0x79, 0x7D,
-   0x82, 0x86, 0x8A, 0x8E, 0x92, 0x96, 0x9A, 0x9E,
-   0xA2, 0xA6, 0xAA, 0xAE, 0xB2, 0xB6, 0xBA, 0xBE,
-   0xC3, 0xC7, 0xCB, 0xCF, 0xD3, 0xD7, 0xDB, 0xDF,
-   0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
- };
-
-unsigned int sizetable[64] = {
-                  1,    2,    3,    4,    5,    6,    7,    8,
-                  9,   10,   11,   12,   13,   14,   15,   16,
-                 17,   18,   19,   20,   21,   22,   23,   24,
-                 25,   26,   27,   28,   29,   30,   31,   32,
-                 33,   34,   35,   36,   37,   38,   39,   40,
-                 41,   42,   43,   44,   45,   46,   47,   48,
-                 49,   50,   51,   52,   53,   54,   55,   56,
-                 57,   58,   59,  128,  256,  512, 1024, 2048
-};
 
 struct smk_huff_t
 {
@@ -69,7 +48,7 @@ struct smk_t
     unsigned char       audio_compress[7];
     unsigned char       audio_exists[7];
     unsigned char       audio_channels[7];
-    unsigned char       audio_bitrate[7];
+    unsigned char       audio_bitdepth[7];
     unsigned int        audio_rate[7];
 
 /* persistence, and usability */
@@ -131,9 +110,72 @@ static unsigned char smk_read_uc(FILE *fp)
    Preps all the image and audio pointers */
 static void smk_render(smk s)
 {
-    printf("%d\n",s->w);
+    const unsigned char palmap[64] = {
+        0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
+        0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C,
+        0x41, 0x45, 0x49, 0x4D, 0x51, 0x55, 0x59, 0x5D,
+        0x61, 0x65, 0x69, 0x6D, 0x71, 0x75, 0x79, 0x7D,
+        0x82, 0x86, 0x8A, 0x8E, 0x92, 0x96, 0x9A, 0x9E,
+        0xA2, 0xA6, 0xAA, 0xAE, 0xB2, 0xB6, 0xBA, 0xBE,
+        0xC3, 0xC7, 0xCB, 0xCF, 0xD3, 0xD7, 0xDB, 0xDF,
+        0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
+    };
+
+    const unsigned short sizetable[64] = {
+        1,     2,    3,    4,    5,    6,    7,    8,
+        9,    10,   11,   12,   13,   14,   15,   16,
+        17,   18,   19,   20,   21,   22,   23,   24,
+        25,   26,   27,   28,   29,   30,   31,   32,
+        33,   34,   35,   36,   37,   38,   39,   40,
+        41,   42,   43,   44,   45,   46,   47,   48,
+        49,   50,   51,   52,   53,   54,   55,   56,
+        57,   58,   59,  128,  256,  512, 1024, 2048
+    };
+
+    unsigned char i;
+    unsigned short j;
+
+    /* First: unpack palette, if a pal rec exists */
+    if (s->chunk_pal[s->cur_frame] != NULL)
+    {
+        unsigned char *p = s->chunk_pal[s->cur_frame];
+        j = 0;
+        while (j < 256)
+        {
+            if (*p & 0x80)
+            {
+                j += (*p & 0x7F);
+            } else if (*p & 0x40) {
+            } else {
+            }
+        }
+    }
+
     /* Audio - two modes, uncompressed PCM or Smacker DPCM */
-    
+    for (i=0; i<7; i++)
+    {
+        /* skip any processing if no such track */
+        if (s->audio_exists[i])
+        {
+            if (s->chunk_audio[i][s->cur_frame] != NULL)
+            {
+                if (s->audio_compress[i])
+                {
+printf("todo: decompress audio\n");
+                    /* decompress SMACK DPCM */
+                } else {
+                    /* uncompressed PCM */
+                    /*  set audio buf size */
+                    /* s->audio_len[i] = s->chunk_audio_size[i][s->cur_frame]; */
+                    /* memcpy data.  This could be faster if we just
+                        pointed audio[i] straight at chunk, but then there
+                        is mayhem when freeing (below). */
+                    /* memcpy(s->audio[i], s->chunk_audio[i][s->cur_frame],s->audio_len[i]); */
+                    fprintf(stderr,"ERROR: don't know how to handle raw PCM samples, please send file for testing\n");
+                }
+            }
+        }
+    }
 }
 
 /* PUBLIC FUNCTIONS */
@@ -251,9 +293,9 @@ printf("Audio buffer %d max size %u\n",temp_i,temp_u);
             temp_u = smk_read_ui(fp);
             s->audio_compress[temp_i] = ((temp_u & SMK_FLAG_AUDIO_COMPRESS) ? 1 : 0);
             s->audio_exists[temp_i] = ((temp_u & SMK_FLAG_AUDIO_EXISTS) ? 1 : 0);
-            s->audio_bitrate[temp_i] = ((temp_u & SMK_FLAG_AUDIO_BITRATE) ? 16 : 8);
+            s->audio_bitdepth[temp_i] = ((temp_u & SMK_FLAG_AUDIO_BITRATE) ? 16 : 8);
             s->audio_channels[temp_i] = ((temp_u & SMK_FLAG_AUDIO_STEREO) ? 2 : 1);
-            if ((temp_u & SMK_FLAG_AUDIO_V2) == 0)
+            if ((temp_u & SMK_FLAG_AUDIO_V2) != 0)
             {
                 fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: audio track %d is compressed with Bink (perceptual) Audio Codec: this is currently unsupported by libsmacker\n",fn,temp_i);
                 longjmp(jb,0);
@@ -276,7 +318,9 @@ printf("Audio buffer %d max size %u\n",temp_i,temp_u);
             frame_sizes[temp_u] = smk_read_ui(fp);
 
             if (frame_sizes[temp_u] & SMK_FLAG_KEYFRAME)
+{
                 s->frame_flags[temp_u] = SMK_FLAG_KEYFRAME;
+printf("KEYFRAME!\n");}
             else
                 s->frame_flags[temp_u] = 0;
             frame_sizes[temp_u] &= 0xFFFFFFFC;
@@ -339,7 +383,7 @@ printf("Audio buffer %d max size %u\n",temp_i,temp_u);
                     temp_u2 = smk_read_ui(fp);
                     framedata_size -= temp_u2;
                     temp_u2 -= 4;
-
+printf("audio size %u\n",temp_u2);
                     s->chunk_audio[temp_i][temp_u] = malloc(temp_u2);
 		    retval = fread(s->chunk_audio[temp_i][temp_u],1,temp_u2,fp);
                     if (retval != temp_u2)
@@ -450,7 +494,27 @@ float        smk_info_fps(smk s) { return s->fps; }
 
 unsigned int smk_info_cur_frame(smk s) { return s->cur_frame; }
 
+/* get info about audio tracks */
+/* returns a BYTE with bitfields set, indicating presence of
+   audio for each of 7 tracks */
+unsigned char smk_info_audio_tracks(smk s)
+{
+    return ( ( (s->audio_exists[0]) << 0 ) |
+             ( (s->audio_exists[1]) << 1 ) |
+             ( (s->audio_exists[2]) << 2 ) |
+             ( (s->audio_exists[3]) << 3 ) |
+             ( (s->audio_exists[4]) << 4 ) |
+             ( (s->audio_exists[5]) << 5 ) |
+             ( (s->audio_exists[6]) << 6 ) );
+}
+
+unsigned char smk_info_audio_channels(smk s, unsigned char t) { return s->audio_channels[t]; }
+unsigned char smk_info_audio_bitdepth(smk s, unsigned char t) { return s->audio_bitdepth[t]; }
+unsigned int smk_info_audio_rate(smk s, unsigned char t) { return s->audio_rate[t]; }
+
+unsigned char * smk_get_palette(smk s) { return s->palette; }
 unsigned char * smk_get_frame(smk s) { return s->image; }
+unsigned char * smk_get_audio(smk s, unsigned char t) { return s->audio[t]; }
 
 /* advance to next frame */
 int smk_next(smk s)
@@ -468,16 +532,16 @@ int smk_next(smk s)
 /* seek to a keyframe in an smk */
 int smk_seek_keyframe(smk s, unsigned int f)
 {
-    // rewind (or fast forward!) exactly to f
+    /* rewind (or fast forward!) exactly to f */
     s->cur_frame = f;
 
-    // roll back to previous keyframe in stream, or 0 if no keyframes exist
+    /* roll back to previous keyframe in stream, or 0 if no keyframes exist */
     while (s->cur_frame > 0 && !(s->frame_flags[s->cur_frame] & SMK_FLAG_KEYFRAME)) s->cur_frame --;
 
-    // render the frame: we're ready
+    /* render the frame: we're ready */
     smk_render(s);
 
-    // return "actual seek position" 
+    /* return "actual seek position" */
     return s->cur_frame;
 }
 
@@ -486,5 +550,5 @@ int smk_seek_exact(smk s, unsigned int f)
 {
     smk_seek_keyframe(s,f);
     while (s->cur_frame < f) smk_next(s);
-    return 0;
+    return s->cur_frame;
 }
