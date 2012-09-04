@@ -77,6 +77,7 @@ struct smk_audio_t
     unsigned char       enable;
 
     unsigned char    *buffer;
+    unsigned int        buffer_size;
 };
 
 struct smk_t
@@ -119,6 +120,11 @@ struct smk_t
 
 };
 
+static struct smk_huff_t *smk_build_tree(struct smk_bit_t* bs)
+{
+    return NULL;
+}
+
 /* function to recursively delete a huffman tree */
 static void smk_del_huffman(struct smk_huff_t *t)
 {
@@ -158,13 +164,67 @@ static unsigned char smk_read_uc(FILE *fp)
 }
 
 /* Same as above, except it reads from a RAM buffer */
-/* static unsigned int smk_grab_ui(unsigned char *buf)
+static unsigned int smk_grab_ui(unsigned char *buf)
 {
     return ((unsigned int) buf[3] << 24) |
         ((unsigned int) buf[2] << 16) |
         ((unsigned int) buf[1] << 8) |
         ((unsigned int) buf[0]);
-} */
+}
+
+/* BITSTREAM Functions */
+struct smk_bit_t
+{
+    unsigned char *bitstream;
+    /* unsigned int size; */
+
+    unsigned int byte_num;
+    char bit_num;
+};
+
+static struct smk_bit_t *smk_bs_init(unsigned char *b) /*, unsigned int size) */
+{
+    /* allocate a bitstream struct */
+    struct smk_bit_t *ret;
+    ret = malloc(sizeof(struct smk_bit_t));
+
+    /* set up the pointer to bitstream, and the size counter */
+    ret->bitstream = b;
+    /* ret->size = size; */
+
+    /* point to initial byte */
+    ret->byte_num = 0;
+    ret->bit_num = -1;
+
+    return ret;
+}
+
+static unsigned char smk_bs_1(struct smk_bit_t *bs)
+{
+    /* advance to next bit */
+    bs->bit_num ++;
+
+    /* Out of bits in this byte: next! */
+    if (bs->bit_num > 7)
+    {
+        bs->bit_num ++;
+        bs->bit_num = 0;
+    }
+
+    return ((bs->bitstream[bs->byte_num]) & (0x01 << bs->bit_num) != 0);
+
+}
+
+static unsigned char smk_bs_8(struct smk_bit_t *bs)
+{
+    unsigned char ret = 0, i;
+    for (i = 0; i < 8; i ++)
+    {
+        ret = ret << 1;
+        ret |= smk_bs_1(bs);
+    }
+    return ret;
+}
 
 /* "Renders" (unpacks) the frame at cur_frame
    Preps all the image and audio pointers */
@@ -175,18 +235,24 @@ static void smk_render(smk s)
 
     unsigned int i,j,k,size;
 
-    /* const unsigned char palmap[64] = {
-       0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
-       0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C,
-       0x41, 0x45, 0x49, 0x4D, 0x51, 0x55, 0x59, 0x5D,
-       0x61, 0x65, 0x69, 0x6D, 0x71, 0x75, 0x79, 0x7D,
-       0x82, 0x86, 0x8A, 0x8E, 0x92, 0x96, 0x9A, 0x9E,
-       0xA2, 0xA6, 0xAA, 0xAE, 0xB2, 0xB6, 0xBA, 0xBE,
-       0xC3, 0xC7, 0xCB, 0xCF, 0xD3, 0xD7, 0xDB, 0xDF,
-       0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
-       };
+    /* used for audio decoding */
+    struct smk_bit_t *bs;
+    char base_8[2];
+    short base_16[2];
+    struct smk_huff_t *aud_tree[7];
 
-       const unsigned short sizetable[64] = {
+    const unsigned char palmap[64] = {
+        0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
+        0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C,
+        0x41, 0x45, 0x49, 0x4D, 0x51, 0x55, 0x59, 0x5D,
+        0x61, 0x65, 0x69, 0x6D, 0x71, 0x75, 0x79, 0x7D,
+        0x82, 0x86, 0x8A, 0x8E, 0x92, 0x96, 0x9A, 0x9E,
+        0xA2, 0xA6, 0xAA, 0xAE, 0xB2, 0xB6, 0xBA, 0xBE,
+        0xC3, 0xC7, 0xCB, 0xCF, 0xD3, 0xD7, 0xDB, 0xDF,
+        0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
+    };
+
+/*       const unsigned short sizetable[64] = {
        1,     2,    3,    4,    5,    6,    7,    8,
        9,    10,   11,   12,   13,   14,   15,   16,
        17,   18,   19,   20,   21,   22,   23,   24,
@@ -205,7 +271,7 @@ static void smk_render(smk s)
         buffer = malloc(s->chunk_size[s->cur_frame]);
 
         /* Skip to frame in file */
-        
+
         if (fseek(s->fp,s->chunk_offset[s->cur_frame],SEEK_SET))
         {
             fprintf(stderr,"libsmacker::smk_render - ERROR: fseek to frame %u (offset %u) failed.\n",s->cur_frame,s->chunk_offset[s->cur_frame]);
@@ -232,7 +298,7 @@ static void smk_render(smk s)
         {
             p ++; size --;
             t = malloc(768);
-            memset(t,0,768); /* is this needed? */
+            /* memset(t,0,768); */ /* is this needed? */
             i = 0; /* index into NEW palette */
             j = 0; /* Index into OLD palette */
             while ( (i < 256) && (size > 0) ) /* looping index into NEW palette */
@@ -253,8 +319,14 @@ static void smk_render(smk s)
                     k = ((*p) & 0x3F) + 1;  /* count */
                     p ++; size --;
                     j = (*p);
-                    memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
-                    j += k;
+                    if (s->palette.buffer != NULL)
+                    {
+                        memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
+                        j += k;
+                    } else {
+                        memset(&t[i*3],0,k*3);
+                    }
+                    i += k;
                     p ++; size --;
                 } else {
                     t[(i * 3)] = *p; p++; size --;
@@ -270,29 +342,118 @@ static void smk_render(smk s)
 
         /* advance any remaining unparsed distance */
         p += size;
-printf("advance %u steps\n",size);
     }
 
     printf("pointing at %d\n",p-buffer);
 
-    /* unsigned char i;
-       unsigned short j; */
+    /* Unpack audio chunks */
+    for (i = 0; i < 7; i ++)
+    {
+        if (s->frame_type[s->cur_frame] & (0x02 << i))
+        {
+            size = smk_grab_ui(p);
 
-    /* First: unpack palette, if a pal rec exists */
-    /*if (s->chunk_pal[s->cur_frame] != NULL)
-      {
-      unsigned char *p = s->chunk_pal[s->cur_frame];
-      j = 0;
-      while (j < 256)
-      {
-      if (*p & 0x80)
-      {
-      j += (*p & 0x7F);
-      } else if (*p & 0x40) {
-      } else {
-      }
-      }
-      } */
+            if (s->audio[i].enable)
+            {
+                p += 4; size -= 4;
+
+                if (s->audio[i].compress)
+                {
+                    s->audio[i].buffer_size = smk_grab_ui(p);
+                    p += 4; size -= 4;
+
+                    t = malloc(s->audio[i].buffer_size);
+
+                    /* Compressed audio: must unpack here */
+                    /*  Set up a bitstream */
+                    bs = smk_bs_init (p);
+
+                    if (smk_bs_1(bs))
+                    {
+                        printf("COMPRESSED DATA PRESENT\n");
+
+                        k = (smk_bs_1(bs) == 1 ? 2 : 1);
+                        if (s->audio[i].channels != k)
+                        {
+                            fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, mono/stereo mismatch\n",s->cur_frame,i);
+                            return;
+                        }
+                        k = (smk_bs_1(bs) == 1 ? 16 : 8);
+                        if (s->audio[i].bitdepth != k)
+                        {
+                            fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, 8-/16-bit mismatch\n",s->cur_frame,i);
+                            return;
+                        }
+
+printf("OK, build some treez\n");
+                        if (s->audio[i].channels == 1)
+                        {
+                            if (s->audio[i].bitdepth == 8)
+                            {
+                                aud_tree[0] = smk_build_tree(bs);
+                                aud_tree[1] = NULL;
+                                aud_tree[2] = NULL;
+                                aud_tree[3] = NULL;
+                                base_8[0] = smk_bs_8(bs);
+                            } else {
+                                aud_tree[0] = smk_build_tree(bs);
+                                aud_tree[1] = smk_build_tree(bs);
+                                aud_tree[2] = NULL;
+                                aud_tree[3] = NULL;
+                                base_8[1] = smk_bs_8(bs);
+                                base_8[0] = smk_bs_8(bs);
+                            }
+                        } else {
+                            if (s->audio[i].bitdepth == 8)
+                            {
+                                aud_tree[0] = smk_build_tree(bs);
+                                aud_tree[1] = NULL;
+                                aud_tree[2] = smk_build_tree(bs);
+                                aud_tree[3] = NULL;
+                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
+                            } else {
+                                aud_tree[0] = smk_build_tree(bs);
+                                aud_tree[1] = smk_build_tree(bs);
+                                aud_tree[2] = smk_build_tree(bs);
+                                aud_tree[3] = smk_build_tree(bs);
+                                base_16[1] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
+                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
+                            }
+                        }
+
+/* All set: let's read some DATA! */
+printf("OK, read some DATAZ\n");
+                        for (j = 0; j < s->audio[i].buffer_size; j ++)
+                        {
+                        }
+                    }
+
+                    p += (bs->byte_num + 1);
+                    size -= (bs->byte_num + 1);
+
+                    /* All done with the bitstream, free it. */
+                    free(bs);
+                } else {
+                    s->audio[i].buffer_size = size;
+                    t = malloc(s->audio[i].buffer_size);
+
+                    memcpy(t,p,size);
+                    p += size;
+                    size = 0;
+                }
+
+                if (s->audio[i].buffer != NULL) free (s->audio[i].buffer);
+
+                s->audio[i].buffer = t;
+            }
+
+            /* advance any remaining unparsed distance */
+printf("Well, still got %u bytes left, seeking\n",size);
+            p += size;
+        }
+    }
+
+printf("pointing at %d\n",p-buffer);
 
     if (s->mode == SMK_MODE_DISK)
     {
@@ -313,6 +474,8 @@ smk smk_open(const char* fn, unsigned char m)
     unsigned int temp_u;
     unsigned char b[3];
     unsigned char *hufftree_chunk;
+
+    struct smk_bit_t *bs;
 
     /* make some temp arrays for holding things */
     unsigned int tree_size;
@@ -435,7 +598,6 @@ smk smk_open(const char* fn, unsigned char m)
         for (temp_u = 0; temp_u < s->f; temp_u ++)
         {
             s->frame_type[temp_u] = smk_read_uc(fp);
-if (s->frame_type[temp_u] & 1) { printf("PALETTE RECORD at %u\n",temp_u); }
         }
 
         /* HuffmanTrees
@@ -448,6 +610,14 @@ if (s->frame_type[temp_u] & 1) { printf("PALETTE RECORD at %u\n",temp_u); }
             fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: short read on hufftree block (wanted %u, got %lu)\n",fn,tree_size,retval);
             longjmp(jb,0);
         }
+
+        /* set up a Bitstream */
+        bs = smk_bs_init(hufftree_chunk);
+        /* create some tables */
+        s->video.mmap = smk_build_tree(bs);
+        s->video.mclr = smk_build_tree(bs);
+        s->video.type = smk_build_tree(bs);
+        s->video.full = smk_build_tree(bs);
 
         /* Read in the rest of the data. */
         /*   For MODE_MEMORY, read the chunks and store */
