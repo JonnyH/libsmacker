@@ -30,6 +30,15 @@ int main (int argc, char *argv[])
 
     printf("Opened file %s\nWidth: %d\nHeight: %d\nFrames: %d\nFPS: %f\n",argv[1],w,h,f,fps);
 
+    int i;
+    for (i=0; i < 7; i ++)
+    {
+        unsigned char a_c = smk_info_audio_channels(s,i);
+        unsigned char a_d = smk_info_audio_bitdepth(s,i);
+        unsigned int a_r = smk_info_audio_rate(s,i);
+        printf("Audio track %d: %u bits, %u channels, %uhz\n",i,a_d,a_c,a_r);
+    }
+
 /* Turn on decoding for palette, video, and audio track 0 */
     smk_enable_palette(s,1);
     smk_enable_video(s,1);

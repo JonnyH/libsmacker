@@ -4,9 +4,13 @@ LDFLAGS = -L.
 
 all:	libsmacker.so driver
 
-libsmacker.so:	smacker.o
-	gcc $(LDFLAGS) -dynamiclib smacker.o -o libsmacker.so
+libsmacker.so:	smacker.o smk_bitstream.o smk_hufftree.o
+	gcc $(LDFLAGS) -dynamiclib smacker.o smk_bitstream.o smk_hufftree.o -o libsmacker.so
 
+smk_bitstream.o:	smk_bitstream.c
+	gcc $(CFLAGS) -c smk_bitstream.c
+smk_hufftree.o:	smk_hufftree.c
+	gcc $(CFLAGS) -c smk_hufftree.c
 smacker.o:	smacker.c
 	gcc $(CFLAGS) -c smacker.c
 

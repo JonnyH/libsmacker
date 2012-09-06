@@ -1,6 +1,10 @@
 /* see smacker.h */
 #include "smacker.h"
 
+/* data structures */
+#include "smk_bitstream.h"
+#include "smk_hufftree.h"
+
 /* defines NULL... */
 #include <stdlib.h>
 /* FILE pointers and etc */
@@ -28,13 +32,7 @@
 /* for error handling */
 static jmp_buf jb;
 
-struct smk_huff_t
-{
-    struct smk_huff_t *b0;
-    struct smk_huff_t *b1;
-    unsigned short value;
-};
-
+/* SMACKER DATA STRUCTURES */
 struct smk_palette_t
 {
     /* user-switch */
@@ -55,10 +53,10 @@ struct smk_video_t
     unsigned char       enable;
 
     /* Huffman trees */
-    struct smk_huff_t *mmap;
-    struct smk_huff_t *mclr;
-    struct smk_huff_t *full;
-    struct smk_huff_t *type;
+    struct smk_huff_t   *mmap;
+    struct smk_huff_t   *mclr;
+    struct smk_huff_t   *full;
+    struct smk_huff_t   *type;
 
     unsigned char       *buffer;
 };
@@ -71,12 +69,12 @@ struct smk_audio_t
     unsigned char       bitdepth;
     unsigned int        rate;
 
-    unsigned int        max_buffer;
+    /* unsigned int        max_buffer; */
 
     /* user-switch */
     unsigned char       enable;
 
-    unsigned char    *buffer;
+    unsigned char       *buffer;
     unsigned int        buffer_size;
 };
 
@@ -92,6 +90,8 @@ struct smk_t
 
     /* Holds per-frame flags (i.e. 'keyframe') */
     unsigned char       *frame_flags;
+
+    /* Holds per-frame types (i.e. 'audio track 3, 2, and palette swap'') */
     unsigned char       *frame_type;
 
     /* Index of current frame */
@@ -100,8 +100,6 @@ struct smk_t
     /* on-disk mode */
     FILE                *fp;
     unsigned int  *chunk_offset;
-
-    /* Holds per-frame types (i.e. 'audio track 3, 2, and palette swap'') */
 
     /* in-memory mode: unprocessed chunks */
     unsigned char **chunk_data;
@@ -119,19 +117,6 @@ struct smk_t
     struct smk_audio_t  audio[7];
 
 };
-
-static struct smk_huff_t *smk_build_tree(struct smk_bit_t* bs)
-{
-    return NULL;
-}
-
-/* function to recursively delete a huffman tree */
-static void smk_del_huffman(struct smk_huff_t *t)
-{
-    if (t->b0 != NULL) smk_del_huffman(t->b0);
-    if (t->b1 != NULL) smk_del_huffman(t->b1);
-    free(t);
-}
 
 /* An fread wrapper: consumes N bytes, throws an except
    when size doesn't match expected */
@@ -172,60 +157,6 @@ static unsigned int smk_grab_ui(unsigned char *buf)
         ((unsigned int) buf[0]);
 }
 
-/* BITSTREAM Functions */
-struct smk_bit_t
-{
-    unsigned char *bitstream;
-    /* unsigned int size; */
-
-    unsigned int byte_num;
-    char bit_num;
-};
-
-static struct smk_bit_t *smk_bs_init(unsigned char *b) /*, unsigned int size) */
-{
-    /* allocate a bitstream struct */
-    struct smk_bit_t *ret;
-    ret = malloc(sizeof(struct smk_bit_t));
-
-    /* set up the pointer to bitstream, and the size counter */
-    ret->bitstream = b;
-    /* ret->size = size; */
-
-    /* point to initial byte */
-    ret->byte_num = 0;
-    ret->bit_num = -1;
-
-    return ret;
-}
-
-static unsigned char smk_bs_1(struct smk_bit_t *bs)
-{
-    /* advance to next bit */
-    bs->bit_num ++;
-
-    /* Out of bits in this byte: next! */
-    if (bs->bit_num > 7)
-    {
-        bs->bit_num ++;
-        bs->bit_num = 0;
-    }
-
-    return ((bs->bitstream[bs->byte_num]) & (0x01 << bs->bit_num) != 0);
-
-}
-
-static unsigned char smk_bs_8(struct smk_bit_t *bs)
-{
-    unsigned char ret = 0, i;
-    for (i = 0; i < 8; i ++)
-    {
-        ret = ret << 1;
-        ret |= smk_bs_1(bs);
-    }
-    return ret;
-}
-
 /* "Renders" (unpacks) the frame at cur_frame
    Preps all the image and audio pointers */
 static void smk_render(smk s)
@@ -239,7 +170,10 @@ static void smk_render(smk s)
     struct smk_bit_t *bs;
     char base_8[2];
     short base_16[2];
-    struct smk_huff_t *aud_tree[7];
+
+    short s16;
+
+    struct smk_huff_t *aud_tree[4];
 
     const unsigned char palmap[64] = {
         0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
@@ -277,6 +211,8 @@ static void smk_render(smk s)
             fprintf(stderr,"libsmacker::smk_render - ERROR: fseek to frame %u (offset %u) failed.\n",s->cur_frame,s->chunk_offset[s->cur_frame]);
             return;
         }
+
+printf("pos in file: %lu\n",ftell(s->fp));
         /* Read into buffer */
         if (s->chunk_size[s->cur_frame] != fread(buffer,1,s->chunk_size[s->cur_frame],s->fp))
         {
@@ -329,9 +265,9 @@ static void smk_render(smk s)
                     i += k;
                     p ++; size --;
                 } else {
-                    t[(i * 3)] = *p; p++; size --;
-                    t[(i * 3) + 1] = *p; p++; size --;
-                    t[(i * 3) + 2] = *p; p++; size --;
+                    t[palmap[(i * 3)]] = *p; p++; size --;
+                    t[palmap[(i * 3) + 1]] = *p; p++; size --;
+                    t[palmap[(i * 3) + 2]] = *p; p++; size --;
                     i ++;
                 }
             }
@@ -363,10 +299,11 @@ static void smk_render(smk s)
                     p += 4; size -= 4;
 
                     t = malloc(s->audio[i].buffer_size);
+printf("Size of unpacked buffer: %u\n",s->audio[i].buffer_size);
 
                     /* Compressed audio: must unpack here */
                     /*  Set up a bitstream */
-                    bs = smk_bs_init (p);
+                    bs = smk_bs_init (p, size);
 
                     if (smk_bs_1(bs))
                     {
@@ -400,17 +337,21 @@ printf("OK, build some treez\n");
                                 aud_tree[1] = smk_build_tree(bs);
                                 aud_tree[2] = NULL;
                                 aud_tree[3] = NULL;
-                                base_8[1] = smk_bs_8(bs);
-                                base_8[0] = smk_bs_8(bs);
+                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
                             }
                         } else {
                             if (s->audio[i].bitdepth == 8)
                             {
-                                aud_tree[0] = smk_build_tree(bs);
+                                aud_tree[0] = smk_build_tree(bs);  smk_bs_align(bs);
                                 aud_tree[1] = NULL;
-                                aud_tree[2] = smk_build_tree(bs);
+printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
+                                aud_tree[2] = smk_build_tree(bs);  smk_bs_align(bs);
                                 aud_tree[3] = NULL;
-                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
+printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
+                                base_8[1] = smk_bs_8(bs);
+printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
+                                base_8[0] = smk_bs_8(bs);
+printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
                             } else {
                                 aud_tree[0] = smk_build_tree(bs);
                                 aud_tree[1] = smk_build_tree(bs);
@@ -421,15 +362,82 @@ printf("OK, build some treez\n");
                             }
                         }
 
+/* Print the BASES */
+printf("Bases are: %d %d %d %d\n", base_8[0], base_8[1], base_16[0], base_16[1]);
+
+printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
+                        j = 0;
+                        if (s->audio[i].bitdepth == 8)
+                        {
+                            t[j] = base_8[0];
+                            j ++;
+                        } else {
+                            t[j] = base_16[0] % 256;
+                            j ++;
+                            t[j] = base_16[0] / 256;
+                            j ++;
+                        }
+                        if (s->audio[i].channels == 2)
+                        {
+                            if (s->audio[i].bitdepth == 8)
+                            {
+                                t[j] = base_8[1];
+                                j ++;
+                            } else {
+                                t[j] = base_16[1] % 256;
+                                j ++;
+                                t[j] = base_16[1] / 256;
+                                j ++;
+                            }
+                        }
+
 /* All set: let's read some DATA! */
 printf("OK, read some DATAZ\n");
-                        for (j = 0; j < s->audio[i].buffer_size; j ++)
+                        while (j < s->audio[i].buffer_size)
                         {
+printf("unpack3!\n");
+                            if (s->audio[i].bitdepth == 8)
+                            {
+printf("treelook\n");
+                                t[j] = base_8[0] + smk_tree_lookup(bs,aud_tree[0]);
+printf("done\n");
+                                j ++;
+                            } else {
+                                s16 = (256 * smk_tree_lookup(bs,aud_tree[0])) + smk_tree_lookup(bs,aud_tree[1]);
+                                s16 += base_16[0];
+                                t[j] = s16 % 256;
+                                j ++;
+                                t[j] = s16 / 256;
+                                j ++;
+                            }
+                            if (s->audio[i].channels == 2)
+                            {
+                                if (s->audio[i].bitdepth == 8)
+                                {
+printf("treelook\n");
+                                    t[j] = base_8[1] + smk_tree_lookup(bs,aud_tree[2]);
+printf("treedone\n");
+                                    j ++;
+                                } else {
+                                    s16 = (256 * smk_tree_lookup(bs,aud_tree[2])) + smk_tree_lookup(bs,aud_tree[3]);
+                                    s16 += base_16[1];
+                                    t[j] = s16 % 256;
+                                    j ++;
+                                    t[j] = s16 / 256;
+                                    j ++;
+                                }
+                            }
                         }
                     }
 
                     p += (bs->byte_num + 1);
                     size -= (bs->byte_num + 1);
+
+                    /* All done with the trees, free them. */
+                    if (aud_tree[0] != NULL) smk_del_huffman(aud_tree[0]);
+                    if (aud_tree[1] != NULL) smk_del_huffman(aud_tree[1]);
+                    if (aud_tree[2] != NULL) smk_del_huffman(aud_tree[2]);
+                    if (aud_tree[3] != NULL) smk_del_huffman(aud_tree[3]);
 
                     /* All done with the bitstream, free it. */
                     free(bs);
@@ -540,10 +548,18 @@ smk smk_open(const char* fn, unsigned char m)
         temp_u = smk_read_ui(fp);
         s->video.flags = temp_u % 256;
 
-        for (temp_i = 0; temp_i < 7; temp_i ++)
+        /* Skip over these "unpacked" sizes, they are specific to
+           the official smackw32.dll usage */
+        if (fseek(fp,28,SEEK_CUR))
+        {
+            fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: audio-buff size not skipped OK.\n",fn);
+            longjmp(jb,0);
+        }
+
+        /* for (temp_i = 0; temp_i < 7; temp_i ++)
         {
             s->audio[temp_i].max_buffer = smk_read_ui(fp);
-        }
+        } */
 
         tree_size = smk_read_ui(fp);
 
@@ -612,12 +628,12 @@ smk smk_open(const char* fn, unsigned char m)
         }
 
         /* set up a Bitstream */
-        bs = smk_bs_init(hufftree_chunk);
+        bs = smk_bs_init(hufftree_chunk, tree_size);
         /* create some tables */
-        s->video.mmap = smk_build_tree(bs);
-        s->video.mclr = smk_build_tree(bs);
-        s->video.type = smk_build_tree(bs);
-        s->video.full = smk_build_tree(bs);
+        s->video.mmap = NULL; /* smk_build_tree(bs); */
+        s->video.mclr = NULL; /* smk_build_tree(bs); */
+        s->video.type = NULL; /* smk_build_tree(bs); */
+        s->video.full = NULL; /* smk_build_tree(bs); */
 
         /* Read in the rest of the data. */
         /*   For MODE_MEMORY, read the chunks and store */
