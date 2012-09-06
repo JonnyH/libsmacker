@@ -48,6 +48,7 @@ unsigned int  smk_info_audio_rate(smk, unsigned char);
 unsigned char * smk_get_palette(smk);
 unsigned char * smk_get_video(smk);
 unsigned char * smk_get_audio(smk, unsigned char);
+unsigned int smk_get_audio_size(smk, unsigned char);
 
 /* rewind to first frame and unpack */
 int smk_first(smk);

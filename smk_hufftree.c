@@ -14,6 +14,7 @@ static struct smk_huff_t *smk_tree_rec(struct smk_bit_t *bs)
 
     if (smk_bs_1(bs))
     {
+        printf("1 ");
         ret->b0 = smk_tree_rec(bs);
         ret->b1 = smk_tree_rec(bs);
         ret->value = 0;
@@ -21,6 +22,7 @@ static struct smk_huff_t *smk_tree_rec(struct smk_bit_t *bs)
         ret->b0 = NULL;
         ret->b1 = NULL;
         ret->value = smk_bs_8(bs);
+        printf("value:%d ", ret->value);
     }
     return ret;
 }

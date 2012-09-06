@@ -46,17 +46,22 @@ int main (int argc, char *argv[])
 
     // Get a pointer to first frame
 
+    FILE *fpo;
+    fpo = fopen("out.raw","wb");
+
     smk_first(s);
     image_data = smk_get_video(s);
+    fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
     printf(" -> Frame %d\n",smk_info_cur_frame(s));
 
     while ( smk_next(s) )
     {
         image_data = smk_get_video(s);
+    fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
         printf(" -> Frame %d\n",smk_info_cur_frame(s));
         // Advance to next frame
     }
-
+fclose(fpo);
     smk_close(s);
 
     return 0;

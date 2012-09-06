@@ -74,7 +74,7 @@ struct smk_audio_t
     /* user-switch */
     unsigned char       enable;
 
-    unsigned char       *buffer;
+    void                *buffer;
     unsigned int        buffer_size;
 };
 
@@ -280,11 +280,11 @@ printf("pos in file: %lu\n",ftell(s->fp));
         p += size;
     }
 
-    printf("pointing at %d\n",p-buffer);
 
     /* Unpack audio chunks */
     for (i = 0; i < 7; i ++)
     {
+        printf("BEFORE AUDIO [%d]: pointing at %d\n",i,p-buffer);
         if (s->frame_type[s->cur_frame] & (0x02 << i))
         {
             size = smk_grab_ui(p);
@@ -299,7 +299,6 @@ printf("pos in file: %lu\n",ftell(s->fp));
                     p += 4; size -= 4;
 
                     t = malloc(s->audio[i].buffer_size);
-printf("Size of unpacked buffer: %u\n",s->audio[i].buffer_size);
 
                     /* Compressed audio: must unpack here */
                     /*  Set up a bitstream */
@@ -309,20 +308,17 @@ printf("Size of unpacked buffer: %u\n",s->audio[i].buffer_size);
                     {
                         printf("COMPRESSED DATA PRESENT\n");
 
-                        k = (smk_bs_1(bs) == 1 ? 2 : 1);
-                        if (s->audio[i].channels != k)
+                        if (s->audio[i].channels != (smk_bs_1(bs) == 1 ? 2 : 1))
                         {
                             fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, mono/stereo mismatch\n",s->cur_frame,i);
                             return;
                         }
-                        k = (smk_bs_1(bs) == 1 ? 16 : 8);
-                        if (s->audio[i].bitdepth != k)
+                        if (s->audio[i].bitdepth != (smk_bs_1(bs) == 1 ? 16 : 8))
                         {
                             fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, 8-/16-bit mismatch\n",s->cur_frame,i);
                             return;
                         }
 
-printf("OK, build some treez\n");
                         if (s->audio[i].channels == 1)
                         {
                             if (s->audio[i].bitdepth == 8)
@@ -331,101 +327,79 @@ printf("OK, build some treez\n");
                                 aud_tree[1] = NULL;
                                 aud_tree[2] = NULL;
                                 aud_tree[3] = NULL;
-                                base_8[0] = smk_bs_8(bs);
-                            } else {
+//                                if (s->audio[i].buffer == NULL)
+                                ((char *)t)[0] = (char)smk_bs_8(bs);
+//((char *)t)[0] = smk_tree_lookup(bs,aud_tree[0]);
+ //                               else
+ //                                   ((char *)t)[0] = smk_bs_8(bs);
+                                j = 1;
+                            }/* else {
                                 aud_tree[0] = smk_build_tree(bs);
                                 aud_tree[1] = smk_build_tree(bs);
                                 aud_tree[2] = NULL;
                                 aud_tree[3] = NULL;
+
                                 base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
-                            }
+                            }*/
                         } else {
                             if (s->audio[i].bitdepth == 8)
                             {
-                                aud_tree[0] = smk_build_tree(bs);  smk_bs_align(bs);
+                                aud_tree[0] = smk_build_tree(bs);
+                                if (aud_tree[0] == NULL) { printf("TREE0 NULL\n");}
                                 aud_tree[1] = NULL;
-printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
-                                aud_tree[2] = smk_build_tree(bs);  smk_bs_align(bs);
+                                smk_bs_align(bs);
+                                aud_tree[2] = smk_build_tree(bs);
+                                if (aud_tree[2] == NULL) { printf("TREE2 NULL\n");}
                                 aud_tree[3] = NULL;
-printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
-                                base_8[1] = smk_bs_8(bs);
-printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
-                                base_8[0] = smk_bs_8(bs);
-printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
-                            } else {
+                                ((char *)t)[0] = (char)smk_bs_8(bs);
+                                ((char *)t)[1] = (char)smk_bs_8(bs);
+/*                            } else {
                                 aud_tree[0] = smk_build_tree(bs);
                                 aud_tree[1] = smk_build_tree(bs);
                                 aud_tree[2] = smk_build_tree(bs);
                                 aud_tree[3] = smk_build_tree(bs);
                                 base_16[1] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
-                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
+                                base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs)); */
                             }
                         }
 
 /* Print the BASES */
-printf("Bases are: %d %d %d %d\n", base_8[0], base_8[1], base_16[0], base_16[1]);
+/* printf("Bases are: %d %d %d %d\n", base_8[0], base_8[1], base_16[0], base_16[1]); */
 
-printf("Ready to begin consuming data, starting from byte %u bit %u\n",bs->byte_num,bs->bit_num);
-                        j = 0;
-                        if (s->audio[i].bitdepth == 8)
-                        {
-                            t[j] = base_8[0];
-                            j ++;
-                        } else {
-                            t[j] = base_16[0] % 256;
-                            j ++;
-                            t[j] = base_16[0] / 256;
-                            j ++;
-                        }
-                        if (s->audio[i].channels == 2)
-                        {
-                            if (s->audio[i].bitdepth == 8)
-                            {
-                                t[j] = base_8[1];
-                                j ++;
-                            } else {
-                                t[j] = base_16[1] % 256;
-                                j ++;
-                                t[j] = base_16[1] / 256;
-                                j ++;
-                            }
-                        }
+printf("Ready to begin consuming data, starting from byte %u bit %u\nBase[0] = %d",bs->byte_num,bs->bit_num,((char *)t)[0]);
 
 /* All set: let's read some DATA! */
-printf("OK, read some DATAZ\n");
                         while (j < s->audio[i].buffer_size)
                         {
-printf("unpack3!\n");
-                            if (s->audio[i].bitdepth == 8)
-                            {
-printf("treelook\n");
-                                t[j] = base_8[0] + smk_tree_lookup(bs,aud_tree[0]);
-printf("done\n");
-                                j ++;
-                            } else {
-                                s16 = (256 * smk_tree_lookup(bs,aud_tree[0])) + smk_tree_lookup(bs,aud_tree[1]);
-                                s16 += base_16[0];
-                                t[j] = s16 % 256;
-                                j ++;
-                                t[j] = s16 / 256;
-                                j ++;
-                            }
-                            if (s->audio[i].channels == 2)
+                            if (s->audio[i].channels == 1)
                             {
                                 if (s->audio[i].bitdepth == 8)
                                 {
-printf("treelook\n");
-                                    t[j] = base_8[1] + smk_tree_lookup(bs,aud_tree[2]);
-printf("treedone\n");
+                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 1];
                                     j ++;
-                                } else {
+                                }/* else {
+                                    s16 = (256 * smk_tree_lookup(bs,aud_tree[0])) + smk_tree_lookup(bs,aud_tree[1]);
+                                    s16 += base_16[0];
+                                    t[j] = s16 % 256;
+                                    j ++;
+                                    t[j] = s16 / 256;
+                                    j ++;
+                                } */
+                            } else {
+                                if (s->audio[i].bitdepth == 8)
+                                {
+                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 1];
+                                    j ++;
+                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[2])) + ((char *)t)[j - 2];
+                                    j ++;
+                                } /* else {
                                     s16 = (256 * smk_tree_lookup(bs,aud_tree[2])) + smk_tree_lookup(bs,aud_tree[3]);
                                     s16 += base_16[1];
                                     t[j] = s16 % 256;
                                     j ++;
                                     t[j] = s16 / 256;
                                     j ++;
-                                }
+                                } */
                             }
                         }
                     }
@@ -453,6 +427,8 @@ printf("treedone\n");
                 if (s->audio[i].buffer != NULL) free (s->audio[i].buffer);
 
                 s->audio[i].buffer = t;
+            } else {
+                printf("There was an audio track %d here, but I have it disabled.\n",i);
             }
 
             /* advance any remaining unparsed distance */
@@ -461,7 +437,7 @@ printf("Well, still got %u bytes left, seeking\n",size);
         }
     }
 
-printf("pointing at %d\n",p-buffer);
+    printf("BEFORE VIDEO: pointing at %d\n",p-buffer);
 
     if (s->mode == SMK_MODE_DISK)
     {
@@ -766,6 +742,7 @@ unsigned int smk_info_audio_rate(smk s, unsigned char t) { return s->audio[t].ra
 unsigned char * smk_get_palette(smk s) { return s->palette.buffer; }
 unsigned char * smk_get_video(smk s) { return s->video.buffer; }
 unsigned char * smk_get_audio(smk s, unsigned char t) { return s->audio[t].buffer; }
+unsigned int smk_get_audio_size(smk s, unsigned char t) { return s->audio[t].buffer_size; }
 
 /* rewind to first frame and unpack */
 int smk_first(smk s)
