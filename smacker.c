@@ -168,10 +168,6 @@ static void smk_render(smk s)
 
     /* used for audio decoding */
     struct smk_bit_t *bs;
-    char base_8[2];
-    short base_16[2];
-
-    short s16;
 
     struct smk_huff_t *aud_tree[4];
 
@@ -327,37 +323,31 @@ printf("pos in file: %lu\n",ftell(s->fp));
                                 aud_tree[1] = NULL;
                                 aud_tree[2] = NULL;
                                 aud_tree[3] = NULL;
-//                                if (s->audio[i].buffer == NULL)
-                                ((char *)t)[0] = (char)smk_bs_8(bs);
-//((char *)t)[0] = smk_tree_lookup(bs,aud_tree[0]);
- //                               else
- //                                   ((char *)t)[0] = smk_bs_8(bs);
+                                ((unsigned char *)t)[0] = smk_bs_8(bs);
                                 j = 1;
-                            }/* else {
+                            } else {
                                 aud_tree[0] = smk_build_tree(bs);
                                 aud_tree[1] = smk_build_tree(bs);
-                                aud_tree[2] = NULL;
                                 aud_tree[3] = NULL;
+                                aud_tree[2] = NULL;
 
                                 base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
-                            }*/
+                            }
                         } else {
                             if (s->audio[i].bitdepth == 8)
                             {
                                 aud_tree[0] = smk_build_tree(bs);
-                                if (aud_tree[0] == NULL) { printf("TREE0 NULL\n");}
                                 aud_tree[1] = NULL;
-                                smk_bs_align(bs);
                                 aud_tree[2] = smk_build_tree(bs);
-                                if (aud_tree[2] == NULL) { printf("TREE2 NULL\n");}
                                 aud_tree[3] = NULL;
-                                ((char *)t)[0] = (char)smk_bs_8(bs);
-                                ((char *)t)[1] = (char)smk_bs_8(bs);
+                                ((unsigned char *)t)[1] = smk_bs_8(bs);
+                                ((unsigned char *)t)[0] = smk_bs_8(bs);
+                                j = 2;
 /*                            } else {
-                                aud_tree[0] = smk_build_tree(bs);
-                                aud_tree[1] = smk_build_tree(bs);
-                                aud_tree[2] = smk_build_tree(bs);
                                 aud_tree[3] = smk_build_tree(bs);
+                                aud_tree[2] = smk_build_tree(bs);
+                                aud_tree[1] = smk_build_tree(bs);
+                                aud_tree[0] = smk_build_tree(bs);
                                 base_16[1] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs));
                                 base_16[0] = ((smk_bs_8(bs)) << 8) | (smk_bs_8(bs)); */
                             }
@@ -375,7 +365,7 @@ printf("Ready to begin consuming data, starting from byte %u bit %u\nBase[0] = %
                             {
                                 if (s->audio[i].bitdepth == 8)
                                 {
-                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 1];
+                                    ((unsigned char *)t)[j] = ((char)smk_tree_lookup(bs,aud_tree[0])) + ((unsigned char *)t)[j - 1];
                                     j ++;
                                 }/* else {
                                     s16 = (256 * smk_tree_lookup(bs,aud_tree[0])) + smk_tree_lookup(bs,aud_tree[1]);
@@ -388,7 +378,7 @@ printf("Ready to begin consuming data, starting from byte %u bit %u\nBase[0] = %
                             } else {
                                 if (s->audio[i].bitdepth == 8)
                                 {
-                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 1];
+                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 2];
                                     j ++;
                                     ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[2])) + ((char *)t)[j - 2];
                                     j ++;
