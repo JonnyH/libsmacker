@@ -2,11 +2,60 @@
 
 #include "smacker.h"
 
+void dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, unsigned int h, unsigned int framenum)
+{
+    int i,j;
+    FILE *fp;
+    char filename[128];
+    unsigned int temp;
+    sprintf(filename,"out_%04u.bmp",framenum);
+    fp = fopen(filename, "wb");
+    fwrite("BM",2,1,fp);
+    temp = 1078 + w * h;
+    fwrite(&temp,4,1,fp);
+    temp = 0;
+    fwrite(&temp,4,1,fp);
+    temp = 1078;
+    fwrite(&temp,4,1,fp);
+    temp = 40;
+    fwrite(&temp,4,1,fp);
+    fwrite(&w,4,1,fp);
+    fwrite(&h,4,1,fp);
+    temp = 1;
+    fwrite(&temp,2,1,fp);
+    temp = 8;
+    fwrite(&temp,4,1,fp);
+    temp = 0;
+    fwrite(&temp,2,1,fp);
+    temp = w * h;
+    fwrite(&temp,4,1,fp);
+    temp = 0;
+    fwrite(&temp,4,1,fp);
+    fwrite(&temp,4,1,fp);
+    temp = 256;
+    fwrite(&temp,4,1,fp);
+    temp = 256;
+    fwrite(&temp,4,1,fp);
+    temp = 0;
+    for ( i = 0; i < 256; i ++)
+    {
+        fwrite(&pal[(i * 3) + 2],1,1,fp);
+        fwrite(&pal[(i * 3) + 1],1,1,fp);
+        fwrite(&pal[(i * 3)],1,1,fp);
+        fwrite(&temp,1,1,fp);
+    }
+
+    for ( j = 0; j < h; j ++)
+      for ( i = 0; i < w; i ++)
+        fwrite(&image_data[(j * w) + i],1,1,fp);
+
+    fclose(fp);
+}
+
 int main (int argc, char *argv[])
 {
     unsigned int w,h,f;
     float fps;
-    unsigned char *image_data;
     smk s;
 
     if (argc != 2)
@@ -50,14 +99,17 @@ int main (int argc, char *argv[])
     fpo = fopen("out.raw","wb");
 
     smk_first(s);
-    image_data = smk_get_video(s);
+
+    dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
+
     fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
     printf(" -> Frame %d\n",smk_info_cur_frame(s));
 
+
     while ( smk_next(s) )
     {
-        image_data = smk_get_video(s);
-    fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
+        dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
+        fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
         printf(" -> Frame %d\n",smk_info_cur_frame(s));
         // Advance to next frame
     }
