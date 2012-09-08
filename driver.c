@@ -69,7 +69,8 @@ int main (int argc, char *argv[])
         return -1;
     }
 
-    s = smk_open(argv[1],SMK_MODE_DISK);
+    //s = smk_open(argv[1],SMK_MODE_DISK);
+    s = smk_open(argv[1],SMK_MODE_MEMORY);
     if (s == NULL)
     {
         printf("Errors encountered opening %s, exiting.\n",argv[1]);

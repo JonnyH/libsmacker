@@ -120,11 +120,11 @@ struct smk_t
 
 /* An fread wrapper: consumes N bytes, throws an except
    when size doesn't match expected */
-static void read(void *buf, size_t size, FILE *fp)
+static void smk_read(void *buf, size_t size, FILE *fp)
 {
     if (fread(buf,size,1,fp) != 1)
     {
-        fprintf(stderr,"libsmacker::read() - ERROR - Short read looking for %lu bytes\n",size);
+        fprintf(stderr,"libsmacker::smk_read() - ERROR - Short read looking for %lu bytes\n",size);
         longjmp(jb,0);
     }
 }
@@ -134,7 +134,7 @@ static void read(void *buf, size_t size, FILE *fp)
 static unsigned int smk_read_ui(FILE *fp)
 {
     unsigned char buf[4];
-    read(buf,4,fp);
+    smk_read(buf,4,fp);
     return ((unsigned int) buf[3] << 24) |
         ((unsigned int) buf[2] << 16) |
         ((unsigned int) buf[1] << 8) |
@@ -144,7 +144,7 @@ static unsigned int smk_read_ui(FILE *fp)
 static unsigned char smk_read_uc(FILE *fp)
 {
     unsigned char buf;
-    read(&buf,1,fp);
+    smk_read(&buf,1,fp);
     return buf;
 }
 
