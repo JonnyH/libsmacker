@@ -45,7 +45,10 @@ void dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, uns
         fwrite(&temp,1,1,fp);
     }
 
-    fwrite(image_data,w*h,1,fp);
+    for ( i = h - 1; i >= 0; i --)
+    {
+        fwrite(&image_data[i * w],w,1,fp);
+    }
 
     fclose(fp);
 }
@@ -55,6 +58,10 @@ int main (int argc, char *argv[])
     unsigned int w,h,f;
     float fps;
     smk s;
+
+    char filename[128];
+
+    FILE *fpo[7] = {NULL};
 
     if (argc != 2)
     {
@@ -89,29 +96,53 @@ int main (int argc, char *argv[])
 /* Turn on decoding for palette, video, and audio track 0 */
     smk_enable_palette(s,1);
     smk_enable_video(s,1);
-    smk_enable_audio(s,0,1);
+
+    for (i = 0; i < 7; i ++)
+    {
+        if (smk_info_audio_tracks(s) & (1 << i))
+        {
+            smk_enable_audio(s,i,1);
+            sprintf(filename,"out_%01d.raw",i);
+            fpo[i] = fopen(filename, "wb");
+        } else {
+            fpo[i] = NULL;
+        }
+    }
 
     // Get a pointer to first frame
-
-    FILE *fpo;
-    fpo = fopen("out.raw","wb");
 
     smk_first(s);
 
     dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
 
-    fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
+    for (i = 0; i < 7; i++)
+    {
+        if (fpo[i] != NULL)
+        {
+            fwrite(smk_get_audio(s,i),smk_get_audio_size(s,i),1,fpo[i]);
+        }
+    }
     printf(" -> Frame %d\n",smk_info_cur_frame(s));
 
 
-    /* while ( smk_next(s) )
+    while ( smk_next(s) )
     {
-        dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
-        fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
-        printf(" -> Frame %d\n",smk_info_cur_frame(s));
+
+    dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
+
+    for (i = 0; i < 7; i++)
+    {
+        if (fpo[i] != NULL)
+        {
+            fwrite(smk_get_audio(s,i),smk_get_audio_size(s,i),1,fpo[i]);
+        }
+    }
+    printf(" -> Frame %d\n",smk_info_cur_frame(s));
         // Advance to next frame
-    } */
-fclose(fpo);
+
+    }
+
+    for (i = 0; i < 7; i++) fclose(fpo[i]);
     smk_close(s);
 
     return 0;

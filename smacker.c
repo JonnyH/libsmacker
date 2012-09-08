@@ -157,24 +157,10 @@ static unsigned int smk_grab_ui(unsigned char *buf)
         ((unsigned int) buf[0]);
 }
 
-/* "Renders" (unpacks) the frame at cur_frame
-   Preps all the image and audio pointers */
-static void smk_render(smk s)
+static unsigned char *smk_render_palette(smk s, unsigned char *p)
 {
-    unsigned char *buffer;
-    unsigned char *p,*t,s1,s2;
-
-    unsigned int i,j,k,size, row, col;
-
-    /* used for audio decoding */
-    struct smk_bit_t *bs;
-    struct smk_huff_t *aud_tree[4];
-
-    /* used for video decoding */
-    unsigned short unpack;
-    unsigned char type;
-    unsigned char blocklen;
-    unsigned char typedata;
+    unsigned int i,j,k,size;
+    unsigned char *t;
 
     const unsigned char palmap[64] = {
         0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
@@ -187,6 +173,221 @@ static void smk_render(smk s)
         0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
     };
 
+    size = 4 * (*p);
+
+    if (s->palette.enable)
+    {
+        p ++; size --;
+        smk_malloc(t,768);
+        /* memset(t,0,768); */ /* is this needed? */
+        i = 0; /* index into NEW palette */
+        j = 0; /* Index into OLD palette */
+        while ( (i < 256) && (size > 0) ) /* looping index into NEW palette */
+        {
+            if ((*p) & 0x80)
+            {
+                k = ((*p) & 0x7F) + 1;
+                if (s->palette.buffer != NULL)
+                {
+                    memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
+                    j += k;
+                } else {
+                    memset(&t[i*3],0,k*3);
+                }
+                i += k;
+                p ++; size --;
+            } else if ((*p) & 0x40) {
+                k = ((*p) & 0x3F) + 1;  /* count */
+                p ++; size --;
+                j = (*p);
+                if (s->palette.buffer != NULL)
+                {
+                    memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
+                    j += k;
+                } else {
+                    memset(&t[i*3],0,k*3);
+                }
+                i += k;
+                p ++; size --;
+            } else {
+                t[(i * 3)] = palmap[*p]; p++; size --;
+                t[(i * 3) + 1] = palmap[*p]; p++; size --;
+                t[(i * 3) + 2] = palmap[*p]; p++; size --;
+                i ++;
+            }
+        }
+
+        smk_free (s->palette.buffer);
+        s->palette.buffer = t;
+    }
+
+    /* advance any remaining unparsed distance */
+    /* if (size > 0) { printf ("Info: advancing %u bytes after palette decompress.\n",size); } */
+    p += size;
+
+    return p;
+}
+
+static unsigned char *smk_render_audio(smk s, unsigned int i, unsigned char *p)
+{
+    unsigned int j,k,size;
+    unsigned char *t;
+    struct smk_bit_t *bs;
+
+    /* used for audio decoding */
+    struct smk_huff_t *aud_tree[4];
+
+    size = smk_grab_ui(p);
+
+    if (s->audio[i].enable)
+    {
+        p += 4; size -= 4;
+
+        if (s->audio[i].compress)
+        {
+            s->audio[i].buffer_size = smk_grab_ui(p);
+            p += 4; size -= 4;
+
+            smk_malloc(t,s->audio[i].buffer_size);
+
+            /* Compressed audio: must unpack here */
+            /*  Set up a bitstream */
+            bs = smk_bs_init (p, size);
+
+            if (smk_bs_1(bs))
+            {
+                if (s->audio[i].channels != (smk_bs_1(bs) == 1 ? 2 : 1))
+                {
+                    fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, mono/stereo mismatch\n",s->cur_frame,i);
+                    /* advance any remaining unparsed distance */
+                    p += size;
+                    return p;
+                }
+                if (s->audio[i].bitdepth != (smk_bs_1(bs) == 1 ? 16 : 8))
+                {
+                    fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, 8-/16-bit mismatch\n",s->cur_frame,i);
+                    /* advance any remaining unparsed distance */
+                    p += size;
+                    return p;
+                }
+
+                if (s->audio[i].channels == 1)
+                {
+                    aud_tree[0] = smk_build_tree(bs);
+                    aud_tree[2] = NULL;
+                    aud_tree[3] = NULL;
+                    if (s->audio[i].bitdepth == 8)
+                    {
+                        aud_tree[1] = NULL;
+                        ((unsigned char *)t)[0] = smk_bs_8(bs);
+                        k=1;
+                    } else {
+                        aud_tree[1] = smk_build_tree(bs);
+                        ((short *)t)[0] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
+                        k=2;
+                    }
+                    j = 1;
+                } else {
+                    aud_tree[0] = smk_build_tree(bs);
+                    aud_tree[1] = smk_build_tree(bs);
+                    if (s->audio[i].bitdepth == 8)
+                    {
+                        aud_tree[2] = NULL;
+                        aud_tree[3] = NULL;
+                        ((unsigned char *)t)[1] = smk_bs_8(bs);
+                        ((unsigned char *)t)[0] = smk_bs_8(bs);
+                        k=2;
+                    } else {
+                        aud_tree[2] = smk_build_tree(bs);
+                        aud_tree[3] = smk_build_tree(bs);
+                        ((short *)t)[1] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
+                        ((short *)t)[0] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
+                        k=4;
+                    }
+                    j = 2;
+                }
+
+/* All set: let's read some DATA! */
+                while (k < s->audio[i].buffer_size)
+                {
+                    if (s->audio[i].channels == 1)
+                    {
+                        if (s->audio[i].bitdepth == 8)
+                        {
+                            ((unsigned char *)t)[j] = ((char)smk_tree_lookup(bs,aud_tree[0])) + ((unsigned char *)t)[j - 1];
+                            j ++;
+                            k++;
+                        } else {
+                            ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[0]) | (smk_tree_lookup(bs,aud_tree[1]) << 8) )
+                                                         + ((short *)t)[j - 1];
+                            j ++;
+                            k+=2;
+                        }
+                    } else {
+                        if (s->audio[i].bitdepth == 8)
+                        {
+                            ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 2];
+                            j ++;
+                            ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[1])) + ((char *)t)[j - 2];
+                            j ++;
+                            k+=2;
+                        }  else {
+                            ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[0]) | (smk_tree_lookup(bs,aud_tree[1]) << 8) )
+                                                         + ((short *)t)[j - 2];
+                            j ++;
+                            ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[2]) | (smk_tree_lookup(bs,aud_tree[3]) << 8) )
+                                                         + ((short *)t)[j - 2];
+                            j ++;
+                            k+=4;
+                        }
+                    }
+                }
+            }
+
+            p += (bs->byte_num + 1);
+            size -= (bs->byte_num + 1);
+
+            /* All done with the trees, free them. */
+            smk_del_huffman(aud_tree[0]);
+            smk_del_huffman(aud_tree[1]);
+            smk_del_huffman(aud_tree[2]);
+            smk_del_huffman(aud_tree[3]);
+
+            /* All done with the bitstream, free it. */
+            smk_free(bs);
+        } else {
+            s->audio[i].buffer_size = size;
+            smk_malloc(t,s->audio[i].buffer_size);
+
+            memcpy(t,p,size);
+            p += size;
+            size = 0;
+        }
+
+        smk_free (s->audio[i].buffer);
+
+        s->audio[i].buffer = t;
+    }
+
+    /* advance any remaining unparsed distance */
+    p += size;
+    return p;
+}
+
+static unsigned char *smk_render_video(smk s, unsigned int size, unsigned char *p)
+{
+    unsigned char *t,s1,s2;
+
+    unsigned int j,k, row, col;
+
+    /* used for video decoding */
+    struct smk_bit_t *bs;
+    unsigned short unpack;
+    unsigned char type;
+    unsigned char blocklen;
+    unsigned char typedata;
+
+
     const unsigned short sizetable[64] = {
         1,     2,    3,    4,    5,    6,    7,    8,
         9,    10,   11,   12,   13,   14,   15,   16,
@@ -197,6 +398,105 @@ static void smk_render(smk s)
         49,   50,   51,   52,   53,   54,   55,   56,
         57,   58,   59,  128,  256,  512, 1024, 2048
     };
+
+    if (s->video.enable)
+    {
+        smk_malloc(t,s->video.w * s->video.h);
+
+        row = 0;
+        col = 0;
+
+    /* Set up a bitstream for video unpacking */
+        bs = smk_bs_init (p, size);
+
+        smk_bigtree_reset(s->video.mmap);
+        smk_bigtree_reset(s->video.mclr);
+        smk_bigtree_reset(s->video.full);
+        smk_bigtree_reset(s->video.type);
+
+        while ( ((row * s->video.w) + col) < (s->video.w * s->video.h) )
+        {
+if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: out of bits in Bitstream, bailing out.\n"); 
+    p += size;
+    return p; }
+            unpack = smk_bigtree_lookup(bs,s->video.type);
+            type = ((unpack & 0x0003));
+            blocklen = ((unpack & 0x00FC) >> 2 );
+            typedata = ((unpack & 0xFF00) >> 8);
+/* printf("Retrieved: type %u, blocklen %u, typedata %02X.  (overall unpack: %04X) BS position %u.%u\n",type,blocklen,typedata,unpack,bs->byte_num,bs->bit_num); */
+            for (j = 0; (j < sizetable[blocklen]) && (((row * s->video.w) + col) < (s->video.w * s->video.h)); j ++)
+            {
+                switch(type)
+                {
+                    case 0:
+                        unpack = smk_bigtree_lookup(bs,s->video.mclr);
+                        s1 = (unpack & 0xFF00) >> 8;
+                        s2 = (unpack & 0x00FF);
+                        unpack = smk_bigtree_lookup(bs,s->video.mmap);
+                        for (k = 0; k < 16; k ++)
+                        {
+                            if (unpack & (1 << k))
+                                t[(row + (k / 4)) * s->video.w + col + (k % 4) ] = s1;
+                            else
+                                t[(row + (k / 4)) * s->video.w + col + (k % 4) ] = s2;
+                        }
+                        break;
+
+                    case 1:
+                        if (s->v == '2')
+                        {
+                            for (k = 0; k < 4; k ++)
+                            {
+                              unpack = smk_bigtree_lookup(bs,s->video.full);
+                              t[(row + k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                              t[(row + k) * s->video.w + col + 2] = (unpack & 0x00FF);
+                              unpack = smk_bigtree_lookup(bs,s->video.full);
+                              t[(row + k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
+                              t[(row + k) * s->video.w + col] = (unpack & 0x00FF);
+                            }
+                        } else {
+                        }
+                        break;
+
+                    case 2: /* VOID BLOCK */
+                        memcpy(&t[row * s->video.w + col], &s->video.buffer[row * s->video.w + col], 4);
+                        memcpy(&t[(row + 1) * s->video.w + col], &s->video.buffer[(row + 1) * s->video.w + col], 4);
+                        memcpy(&t[(row + 2) * s->video.w + col], &s->video.buffer[(row + 2) * s->video.w + col], 4);
+                        memcpy(&t[(row + 3) * s->video.w + col], &s->video.buffer[(row + 3) * s->video.w + col], 4);
+                        break;
+                    case 3: /* SOLID BLOCK */
+                        memset(&t[row * s->video.w + col],typedata,4);
+                        memset(&t[(row + 1) * s->video.w + col],typedata,4);
+                        memset(&t[(row + 2) * s->video.w + col],typedata,4);
+                        memset(&t[(row + 3) * s->video.w + col],typedata,4);
+                        break;
+                }
+                col += 4; if (col >= s->video.w) { col = 0; row += 4; }
+            }
+        }
+
+        p += (bs->byte_num + 1);
+        size -= (bs->byte_num + 1);
+
+        smk_free(bs);
+
+        smk_free (s->video.buffer);
+        s->video.buffer = t;
+    } else {
+        printf("There was video here, but I skipped it.\n");
+    }
+
+    /* advance any remaining unparsed distance */
+    p += size;
+    return p;
+}
+
+/* "Renders" (unpacks) the frame at cur_frame
+   Preps all the image and audio pointers */
+static void smk_render(smk s)
+{
+    unsigned int i;
+    unsigned char *buffer, *p;
 
     if (s->mode == SMK_MODE_DISK)
     {
@@ -226,57 +526,7 @@ static void smk_render(smk s)
     /* Palette record first */
     if (s->frame_type[s->cur_frame] & 0x01)
     {
-        size = 4 * (*p);
-
-        if (s->palette.enable)
-        {
-            p ++; size --;
-            smk_malloc(t,768);
-            /* memset(t,0,768); */ /* is this needed? */
-            i = 0; /* index into NEW palette */
-            j = 0; /* Index into OLD palette */
-            while ( (i < 256) && (size > 0) ) /* looping index into NEW palette */
-            {
-                if ((*p) & 0x80)
-                {
-                    k = ((*p) & 0x7F) + 1;
-                    if (s->palette.buffer != NULL)
-                    {
-                        memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
-                        j += k;
-                    } else {
-                        memset(&t[i*3],0,k*3);
-                    }
-                    i += k;
-                    p ++; size --;
-                } else if ((*p) & 0x40) {
-                    k = ((*p) & 0x3F) + 1;  /* count */
-                    p ++; size --;
-                    j = (*p);
-                    if (s->palette.buffer != NULL)
-                    {
-                        memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
-                        j += k;
-                    } else {
-                        memset(&t[i*3],0,k*3);
-                    }
-                    i += k;
-                    p ++; size --;
-                } else {
-                    t[(i * 3)] = palmap[*p]; p++; size --;
-                    t[(i * 3) + 1] = palmap[*p]; p++; size --;
-                    t[(i * 3) + 2] = palmap[*p]; p++; size --;
-                    i ++;
-                }
-            }
-
-            smk_free (s->palette.buffer);
-            s->palette.buffer = t;
-        }
-
-        /* advance any remaining unparsed distance */
-        if (size > 0) { printf ("Info: advancing %u bytes after palette decompress.\n",size); }
-        p += size;
+        p = smk_render_palette(s,p);
     }
 
     /* Unpack audio chunks */
@@ -284,234 +534,12 @@ static void smk_render(smk s)
     {
         if (s->frame_type[s->cur_frame] & (0x02 << i))
         {
-            size = smk_grab_ui(p);
-
-            if (s->audio[i].enable)
-            {
-                p += 4; size -= 4;
-
-                if (s->audio[i].compress)
-                {
-                    s->audio[i].buffer_size = smk_grab_ui(p);
-                    p += 4; size -= 4;
-
-                    smk_malloc(t,s->audio[i].buffer_size);
-
-                    /* Compressed audio: must unpack here */
-                    /*  Set up a bitstream */
-                    bs = smk_bs_init (p, size);
-
-                    if (smk_bs_1(bs))
-                    {
-                        if (s->audio[i].channels != (smk_bs_1(bs) == 1 ? 2 : 1))
-                        {
-                            fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, mono/stereo mismatch\n",s->cur_frame,i);
-                            return;
-                        }
-                        if (s->audio[i].bitdepth != (smk_bs_1(bs) == 1 ? 16 : 8))
-                        {
-                            fprintf(stderr,"libsmacker::smk_render - ERROR: frame %u, audio channel %u, 8-/16-bit mismatch\n",s->cur_frame,i);
-                            return;
-                        }
-
-                        if (s->audio[i].channels == 1)
-                        {
-                            aud_tree[0] = smk_build_tree(bs);
-                            aud_tree[2] = NULL;
-                            aud_tree[3] = NULL;
-                            if (s->audio[i].bitdepth == 8)
-                            {
-                                aud_tree[1] = NULL;
-                                ((unsigned char *)t)[0] = smk_bs_8(bs);
-                                k=1;
-                            } else {
-                                aud_tree[1] = smk_build_tree(bs);
-                                ((short *)t)[0] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
-                                k=2;
-                            }
-                            j = 1;
-                        } else {
-                            aud_tree[0] = smk_build_tree(bs);
-                            aud_tree[1] = smk_build_tree(bs);
-                            if (s->audio[i].bitdepth == 8)
-                            {
-                                aud_tree[2] = NULL;
-                                aud_tree[3] = NULL;
-                                ((unsigned char *)t)[1] = smk_bs_8(bs);
-                                ((unsigned char *)t)[0] = smk_bs_8(bs);
-                                k=2;
-                            } else {
-                                aud_tree[2] = smk_build_tree(bs);
-                                aud_tree[3] = smk_build_tree(bs);
-                                ((short *)t)[1] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
-                                ((short *)t)[0] = (((unsigned short)smk_bs_8(bs)) << 8) | ((unsigned short)(smk_bs_8(bs)));
-                                k=4;
-                            }
-                            j = 2;
-                        }
-
-/* All set: let's read some DATA! */
-                        while (k < s->audio[i].buffer_size)
-                        {
-                            if (s->audio[i].channels == 1)
-                            {
-                                if (s->audio[i].bitdepth == 8)
-                                {
-                                    ((unsigned char *)t)[j] = ((char)smk_tree_lookup(bs,aud_tree[0])) + ((unsigned char *)t)[j - 1];
-                                    j ++;
-                                    k++;
-                                } else {
-                                    ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[0]) | (smk_tree_lookup(bs,aud_tree[1]) << 8) )
-                                                                 + ((short *)t)[j - 1];
-                                    j ++;
-                                    k+=2;
-                                }
-                            } else {
-                                if (s->audio[i].bitdepth == 8)
-                                {
-                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[0])) + ((char *)t)[j - 2];
-                                    j ++;
-                                    ((char *)t)[j] = (smk_tree_lookup(bs,aud_tree[1])) + ((char *)t)[j - 2];
-                                    j ++;
-                                    k+=2;
-                                }  else {
-                                    ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[0]) | (smk_tree_lookup(bs,aud_tree[1]) << 8) )
-                                                                 + ((short *)t)[j - 2];
-                                    j ++;
-                                    ((short *)t)[j] = (short) ( smk_tree_lookup(bs,aud_tree[2]) | (smk_tree_lookup(bs,aud_tree[3]) << 8) )
-                                                                 + ((short *)t)[j - 2];
-                                    j ++;
-                                    k+=4;
-                                }
-                            }
-                        }
-                    }
-
-                    p += (bs->byte_num + 1);
-                    size -= (bs->byte_num + 1);
-
-                    /* All done with the trees, free them. */
-                    smk_del_huffman(aud_tree[0]);
-                    smk_del_huffman(aud_tree[1]);
-                    smk_del_huffman(aud_tree[2]);
-                    smk_del_huffman(aud_tree[3]);
-
-                    /* All done with the bitstream, free it. */
-                    smk_free(bs);
-                } else {
-                    s->audio[i].buffer_size = size;
-                    smk_malloc(t,s->audio[i].buffer_size);
-
-                    memcpy(t,p,size);
-                    p += size;
-                    size = 0;
-                }
-
-                smk_free (s->audio[i].buffer);
-
-                s->audio[i].buffer = t;
-            }
-
-            /* advance any remaining unparsed distance */
-            p += size;
+            p = smk_render_audio(s,i,p);
         }
     }
 
-    size = s->chunk_size[s->cur_frame] - (p - buffer);
-    printf("BEFORE VIDEO: pointing at %d (fp: %d), with %u left to go\n",p-buffer,(p - buffer) + s->chunk_offset[s->cur_frame],size);
-
-    if (s->video.enable)
-    {
-        smk_malloc(t,s->video.w * s->video.h);
-
-        row = 0;
-        col = 0;
-
-    /* Set up a bitstream for video unpacking */
-        bs = smk_bs_init (p, size);
-
-        smk_bigtree_reset(s->video.mmap);
-        smk_bigtree_reset(s->video.mclr);
-        smk_bigtree_reset(s->video.type);
-        smk_bigtree_reset(s->video.full);
-
-        while ( ((row * s->video.w) + col) < (s->video.w * s->video.h) )
-        {
-if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: out of bits in Bitstream, bailing out.\n"); return; }
-            unpack = smk_bigtree_lookup(bs,s->video.type);
-            type = ((unpack & 0x0003));
-            blocklen = ((unpack & 0x00FC) >> 2 );
-            typedata = ((unpack & 0xFF00) >> 8);
-printf("Retrieved: type %u, blocklen %u, typedata %02X.  (overall unpack: %04X) BS position %u.%u\n",type,blocklen,typedata,unpack,bs->byte_num,bs->bit_num);
-            for (j = 0; (j < sizetable[blocklen]) && (((row * s->video.w) + col) < (s->video.w * s->video.h)); j ++)
-            {
-                switch(type)
-                {
-                    case 0:
-printf("MONOBLOCK\n");
-                        unpack = smk_bigtree_lookup(bs,s->video.mclr);
-                        s1 = (unpack & 0xFF00) >> 8;
-                        s2 = (unpack & 0x00FF);
-                        unpack = smk_bigtree_lookup(bs,s->video.mmap);
-                        for (k = 0; k < 16; k ++)
-                        {
-                            if (unpack & (1 << k))
-                                t[(row + (k / 4)) * s->video.w + col + (k % 4) ] = s2;
-                            else
-                                t[(row + (k / 4)) * s->video.w + col + (k % 4) ] = s1;
-                        }
-                        break;
-
-                    case 1:
-printf("FULLBLOCK\n");
-                        if (s->v == '2')
-                        {
-                            for (k = 0; k < 4; k ++)
-                            {
-                              unpack = smk_bigtree_lookup(bs,s->video.full);
-                              t[(row + k) * s->video.w + col] = (unpack & 0x00FF);
-                              t[(row + k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
-                              unpack = smk_bigtree_lookup(bs,s->video.full);
-                              t[(row + k) * s->video.w + col + 2] = (unpack & 0x00FF);
-                              t[(row + k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
-                            }
-                        } else {
-                        }
-                        break;
-
-                    case 2: /* VOID BLOCK */
-printf("VOIDBLOCK\n");
-                        memcpy(&t[row * s->video.w + col], &s->video.buffer[row * s->video.w + col], 4);
-                        memcpy(&t[(row + 1) * s->video.w + col], &s->video.buffer[(row + 1) * s->video.w + col], 4);
-                        memcpy(&t[(row + 2) * s->video.w + col], &s->video.buffer[(row + 2) * s->video.w + col], 4);
-                        memcpy(&t[(row + 3) * s->video.w + col], &s->video.buffer[(row + 3) * s->video.w + col], 4);
-                        break;
-                    case 3: /* SOLID BLOCK */
-printf("SOLIDBLOCK\n");
-                        memset(&t[row * s->video.w + col],typedata,4);
-                        memset(&t[(row + 1) * s->video.w + col],typedata,4);
-                        memset(&t[(row + 2) * s->video.w + col],typedata,4);
-                        memset(&t[(row + 3) * s->video.w + col],typedata,4);
-                        break;
-                }
-                col += 4; if (col >= s->video.w) { col = 0; row += 4; }
-            }
-        }
-
-        p += (bs->byte_num + 1);
-        size -= (bs->byte_num + 1);
-
-        smk_free(bs);
-
-        smk_free (s->video.buffer);
-        s->video.buffer = t;
-    } else {
-        printf("There was video here, but I skipped it.\n");
-    }
-
-    printf("Well, still got %d bytes to go.\n",size);
-    /* advance any remaining unparsed distance */
-    p += size;
+    /* Unpack video chunk */
+    p = smk_render_video(s, (s->chunk_size[s->cur_frame] - (p - buffer)), p);
 
     if (s->mode == SMK_MODE_DISK)
     {
@@ -684,10 +712,10 @@ smk smk_open(const char* fn, unsigned char m)
         s->video.mmap = smk_build_bigtree(bs);
         printf("Checking for MCLR tree...\n");
         s->video.mclr = smk_build_bigtree(bs);
-        printf("Checking for TYPE tree...\n");
-        s->video.type = smk_build_bigtree(bs);
         printf("Checking for FULL tree...\n");
         s->video.full = smk_build_bigtree(bs);
+        printf("Checking for TYPE tree...\n");
+        s->video.type = smk_build_bigtree(bs);
 
         /* Read in the rest of the data. */
         /*   For MODE_MEMORY, read the chunks and store */
@@ -876,10 +904,3 @@ int smk_seek_keyframe(smk s, unsigned int f)
     return s->cur_frame;
 }
 
-/* seek to an exact frame in an smk */
-int smk_seek_exact(smk s, unsigned int f)
-{
-    smk_seek_keyframe(s,f);
-    while (s->cur_frame < f) smk_next(s);
-    return s->cur_frame;
-}

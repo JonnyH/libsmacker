@@ -58,7 +58,4 @@ int smk_next(smk);
 /* seek to a keyframe in an smk */
 int smk_seek_keyframe(smk, unsigned int);
 
-/* seek to an exact frame in an smk */
-int smk_seek_exact(smk, unsigned int);
-
 #endif

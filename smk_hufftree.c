@@ -103,6 +103,7 @@ static void btp(struct smk_huff_t *t, int d)
 {
   int q = d;
   if (t == NULL) return;
+
   if (t->b0 != NULL)
   {
     btp(t->b0, d + 1);
@@ -227,7 +228,7 @@ struct smk_huff_big_t *smk_build_bigtree(struct smk_bit_t* bs)
         big = NULL;
     }
 
-    btp(big->t,0);
+    /* btp(big->t,0); */
 
     return big;
 }
@@ -243,24 +244,19 @@ static unsigned short smk_bigtree_lookup_rec (struct smk_bit_t *bs, struct smk_h
 
     if (t->b0 == NULL || t->b1 == NULL)
     {
-printf("LEAF: ");
         if (t->escapecode != 0xFF)
         {
             val = big->s16[t->escapecode];
-printf("escapecode: %u",t->escapecode);
         } else {
             val = t->value;
-printf("value: %u",t->value);
         }
 
         if ( t->escapecode != 0 )
         {
-printf("ESC!=0: shufflin' ");
             big->s16[2] = big->s16[1];
             big->s16[1] = big->s16[0];
             big->s16[0] = val;
         }
-printf("ret\n");
 
         return val;
     } else {
@@ -271,10 +267,8 @@ printf("ret\n");
         }
 
         if (smk_bs_1(bs)) {
-        printf("NODE: bit1: turning right");
             return smk_bigtree_lookup_rec(bs,big,t->b1);
         } else {
-    printf("NODE: bit0: turning left");
             return smk_bigtree_lookup_rec(bs,big,t->b0);
         }
     }
