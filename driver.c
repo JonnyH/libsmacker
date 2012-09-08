@@ -8,10 +8,10 @@ void dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, uns
     FILE *fp;
     char filename[128];
     unsigned int temp;
-    sprintf(filename,"out_%04u.bmp",framenum);
+    sprintf(filename,"bmp/out_%04u.bmp",framenum);
     fp = fopen(filename, "wb");
     fwrite("BM",2,1,fp);
-    temp = 1078 + w * h;
+    temp = 1078 + (w * h);
     fwrite(&temp,4,1,fp);
     temp = 0;
     fwrite(&temp,4,1,fp);
@@ -45,9 +45,7 @@ void dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, uns
         fwrite(&temp,1,1,fp);
     }
 
-    for ( j = 0; j < h; j ++)
-      for ( i = 0; i < w; i ++)
-        fwrite(&image_data[(j * w) + i],1,1,fp);
+    fwrite(image_data,w*h,1,fp);
 
     fclose(fp);
 }
@@ -106,13 +104,13 @@ int main (int argc, char *argv[])
     printf(" -> Frame %d\n",smk_info_cur_frame(s));
 
 
-    while ( smk_next(s) )
+    /* while ( smk_next(s) )
     {
         dump_bmp(smk_get_palette(s),smk_get_video(s),w,h,smk_info_cur_frame(s));
         fwrite(smk_get_audio(s,0),smk_get_audio_size(s,0),1,fpo);
         printf(" -> Frame %d\n",smk_info_cur_frame(s));
         // Advance to next frame
-    }
+    } */
 fclose(fpo);
     smk_close(s);
 

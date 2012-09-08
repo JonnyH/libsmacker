@@ -19,4 +19,7 @@ unsigned char smk_bs_1(struct smk_bit_t *);
 
 unsigned char smk_bs_8(struct smk_bit_t *);
 
+unsigned char smk_bits_left(struct smk_bit_t *);
+unsigned char smk_bytes_left(struct smk_bit_t *);
+
 #endif

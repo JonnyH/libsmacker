@@ -17,15 +17,18 @@ struct smk_huff_big_t
     unsigned short s16[3];
 };
 
-struct smk_huff_big_t *smk_build_bigtree(struct smk_bit_t *);
+
+/* function to recursively delete a huffman tree */
+void smk_del_huffman(struct smk_huff_t *);
 
 struct smk_huff_t *smk_build_tree(struct smk_bit_t*);
 
 unsigned short smk_tree_lookup (struct smk_bit_t *, struct smk_huff_t *);
 
-unsigned short smk_tree_big_lookup (struct smk_bit_t *, struct smk_huff_big_t *);
+struct smk_huff_big_t *smk_build_bigtree(struct smk_bit_t *);
 
-/* function to recursively delete a huffman tree */
-void smk_del_huffman(struct smk_huff_t *);
+unsigned short smk_bigtree_lookup (struct smk_bit_t *, struct smk_huff_big_t *);
+
+void smk_bigtree_reset (struct smk_huff_big_t *);
 
 #endif

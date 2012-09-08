@@ -4,7 +4,7 @@
 #ifndef SMACKER_H
 #define SMACKER_H
 
-/* forward-declaration for an smktruct */
+/* forward-declaration for an struct */
 typedef struct smk_t *smk;
 
 /* a few defines as return codes from smk_next() */

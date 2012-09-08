@@ -1,14 +1,14 @@
 /* see smacker.h */
 #include "smacker.h"
 
+/* safe malloc and free */
+#include "smk_malloc.h"
+
 /* data structures */
 #include "smk_bitstream.h"
 #include "smk_hufftree.h"
 
-/* defines NULL... */
-#include <stdlib.h>
-/* FILE pointers and etc */
-#include <stdio.h>
+/* fp error handling */
 #include <errno.h>
 /* memset */
 #include <string.h>
@@ -201,7 +201,7 @@ static void smk_render(smk s)
     if (s->mode == SMK_MODE_DISK)
     {
         /* In disk-streaming mode: make way for our incoming chunk buffer */
-        buffer = malloc(s->chunk_size[s->cur_frame]);
+        smk_malloc(buffer,s->chunk_size[s->cur_frame]);
 
         /* Skip to frame in file */
 
@@ -231,7 +231,7 @@ static void smk_render(smk s)
         if (s->palette.enable)
         {
             p ++; size --;
-            t = malloc(768);
+            smk_malloc(t,768);
             /* memset(t,0,768); */ /* is this needed? */
             i = 0; /* index into NEW palette */
             j = 0; /* Index into OLD palette */
@@ -263,21 +263,21 @@ static void smk_render(smk s)
                     i += k;
                     p ++; size --;
                 } else {
-                    t[palmap[(i * 3)]] = *p; p++; size --;
-                    t[palmap[(i * 3) + 1]] = *p; p++; size --;
-                    t[palmap[(i * 3) + 2]] = *p; p++; size --;
+                    t[(i * 3)] = palmap[*p]; p++; size --;
+                    t[(i * 3) + 1] = palmap[*p]; p++; size --;
+                    t[(i * 3) + 2] = palmap[*p]; p++; size --;
                     i ++;
                 }
             }
 
-            if (s->palette.buffer != NULL) free (s->palette.buffer);
+            smk_free (s->palette.buffer);
             s->palette.buffer = t;
         }
 
         /* advance any remaining unparsed distance */
+        if (size > 0) { printf ("Info: advancing %u bytes after palette decompress.\n",size); }
         p += size;
     }
-
 
     /* Unpack audio chunks */
     for (i = 0; i < 7; i ++)
@@ -295,7 +295,7 @@ static void smk_render(smk s)
                     s->audio[i].buffer_size = smk_grab_ui(p);
                     p += 4; size -= 4;
 
-                    t = malloc(s->audio[i].buffer_size);
+                    smk_malloc(t,s->audio[i].buffer_size);
 
                     /* Compressed audio: must unpack here */
                     /*  Set up a bitstream */
@@ -391,23 +391,23 @@ static void smk_render(smk s)
                     size -= (bs->byte_num + 1);
 
                     /* All done with the trees, free them. */
-                    if (aud_tree[0] != NULL) smk_del_huffman(aud_tree[0]);
-                    if (aud_tree[1] != NULL) smk_del_huffman(aud_tree[1]);
-                    if (aud_tree[2] != NULL) smk_del_huffman(aud_tree[2]);
-                    if (aud_tree[3] != NULL) smk_del_huffman(aud_tree[3]);
+                    smk_del_huffman(aud_tree[0]);
+                    smk_del_huffman(aud_tree[1]);
+                    smk_del_huffman(aud_tree[2]);
+                    smk_del_huffman(aud_tree[3]);
 
                     /* All done with the bitstream, free it. */
-                    free(bs);
+                    smk_free(bs);
                 } else {
                     s->audio[i].buffer_size = size;
-                    t = malloc(s->audio[i].buffer_size);
+                    smk_malloc(t,s->audio[i].buffer_size);
 
                     memcpy(t,p,size);
                     p += size;
                     size = 0;
                 }
 
-                if (s->audio[i].buffer != NULL) free (s->audio[i].buffer);
+                smk_free (s->audio[i].buffer);
 
                 s->audio[i].buffer = t;
             }
@@ -417,11 +417,12 @@ static void smk_render(smk s)
         }
     }
 
-    //printf("BEFORE VIDEO: pointing at %d\n",p-buffer);
+    size = s->chunk_size[s->cur_frame] - (p - buffer);
+    printf("BEFORE VIDEO: pointing at %d (fp: %d), with %u left to go\n",p-buffer,(p - buffer) + s->chunk_offset[s->cur_frame],size);
 
     if (s->video.enable)
     {
-        t = malloc(s->video.w * s->video.h);
+        smk_malloc(t,s->video.w * s->video.h);
 
         row = 0;
         col = 0;
@@ -429,26 +430,29 @@ static void smk_render(smk s)
     /* Set up a bitstream for video unpacking */
         bs = smk_bs_init (p, size);
 
+        smk_bigtree_reset(s->video.mmap);
+        smk_bigtree_reset(s->video.mclr);
+        smk_bigtree_reset(s->video.type);
+        smk_bigtree_reset(s->video.full);
+
         while ( ((row * s->video.w) + col) < (s->video.w * s->video.h) )
         {
-            unpack = smk_tree_big_lookup(bs,s->video.type);
-//            printf("type: %04X\n",unpack);
-            type = unpack & 0x0003;
-            blocklen = ((unpack & 0x00FC) >> 2);
-            typedata = (unpack & 0xFF00) >> 8;
-            //printf("Unpacked a block: type = %u blocklen = %u typedata = %u\n",type,blocklen,typedata);
+if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: out of bits in Bitstream, bailing out.\n"); return; }
+            unpack = smk_bigtree_lookup(bs,s->video.type);
+            type = ((unpack & 0x0003));
+            blocklen = ((unpack & 0x00FC) >> 2 );
+            typedata = ((unpack & 0xFF00) >> 8);
+printf("Retrieved: type %u, blocklen %u, typedata %02X.  (overall unpack: %04X) BS position %u.%u\n",type,blocklen,typedata,unpack,bs->byte_num,bs->bit_num);
             for (j = 0; (j < sizetable[blocklen]) && (((row * s->video.w) + col) < (s->video.w * s->video.h)); j ++)
             {
                 switch(type)
                 {
                     case 0:
-                        printf("monoblock\n");
-                        unpack = smk_tree_big_lookup(bs,s->video.mclr);
-                        //printf("OONpack\n");
+printf("MONOBLOCK\n");
+                        unpack = smk_bigtree_lookup(bs,s->video.mclr);
                         s1 = (unpack & 0xFF00) >> 8;
                         s2 = (unpack & 0x00FF);
-                        //printf("wakka wakka\n");
-                        unpack = smk_tree_big_lookup(bs,s->video.mmap);
+                        unpack = smk_bigtree_lookup(bs,s->video.mmap);
                         for (k = 0; k < 16; k ++)
                         {
                             if (unpack & (1 << k))
@@ -459,25 +463,31 @@ static void smk_render(smk s)
                         break;
 
                     case 1:
-                        //printf("fullblock\n");
+printf("FULLBLOCK\n");
+                        if (s->v == '2')
+                        {
+                            for (k = 0; k < 4; k ++)
+                            {
+                              unpack = smk_bigtree_lookup(bs,s->video.full);
+                              t[(row + k) * s->video.w + col] = (unpack & 0x00FF);
+                              t[(row + k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
+                              unpack = smk_bigtree_lookup(bs,s->video.full);
+                              t[(row + k) * s->video.w + col + 2] = (unpack & 0x00FF);
+                              t[(row + k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                            }
+                        } else {
+                        }
                         break;
 
                     case 2: /* VOID BLOCK */
-                        //printf("voidblock\n");
-                        if (s->video.buffer != NULL)
-                        {
-                            memcpy(&t[row * s->video.w + col], &s->video.buffer[row * s->video.w + col], 4);
-                            memcpy(&t[(row + 1) * s->video.w + col], &s->video.buffer[(row + 1) * s->video.w + col], 4);
-                            memcpy(&t[(row + 2) * s->video.w + col], &s->video.buffer[(row + 2) * s->video.w + col], 4);
-                            memcpy(&t[(row + 3) * s->video.w + col], &s->video.buffer[(row + 3) * s->video.w + col], 4);
-                        } else {
-                            memset(&t[row * s->video.w + col],0,4);
-                            memset(&t[(row + 1) * s->video.w + col],0,4);
-                            memset(&t[(row + 2) * s->video.w + col],0,4);
-                            memset(&t[(row + 3) * s->video.w + col],0,4);
-                        }
+printf("VOIDBLOCK\n");
+                        memcpy(&t[row * s->video.w + col], &s->video.buffer[row * s->video.w + col], 4);
+                        memcpy(&t[(row + 1) * s->video.w + col], &s->video.buffer[(row + 1) * s->video.w + col], 4);
+                        memcpy(&t[(row + 2) * s->video.w + col], &s->video.buffer[(row + 2) * s->video.w + col], 4);
+                        memcpy(&t[(row + 3) * s->video.w + col], &s->video.buffer[(row + 3) * s->video.w + col], 4);
                         break;
                     case 3: /* SOLID BLOCK */
+printf("SOLIDBLOCK\n");
                         memset(&t[row * s->video.w + col],typedata,4);
                         memset(&t[(row + 1) * s->video.w + col],typedata,4);
                         memset(&t[(row + 2) * s->video.w + col],typedata,4);
@@ -491,21 +501,22 @@ static void smk_render(smk s)
         p += (bs->byte_num + 1);
         size -= (bs->byte_num + 1);
 
-        free(bs);
+        smk_free(bs);
 
-        if (s->video.buffer != NULL) free (s->video.buffer);
+        smk_free (s->video.buffer);
         s->video.buffer = t;
     } else {
         printf("There was video here, but I skipped it.\n");
     }
 
+    printf("Well, still got %d bytes to go.\n",size);
     /* advance any remaining unparsed distance */
     p += size;
 
     if (s->mode == SMK_MODE_DISK)
     {
         /* Remember that buffer we allocated?  Trash it */
-        free(buffer);
+        smk_free(buffer);
     }
 }
 
@@ -538,7 +549,7 @@ smk smk_open(const char* fn, unsigned char m)
         return NULL;
     }
 
-    s = (smk) malloc (sizeof (struct smk_t));
+    smk_malloc (s,sizeof (struct smk_t));
     if (s == NULL)
     {
         fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: Unable to allocate %lu bytes for smk struct\n",fn,sizeof(struct smk_t));
@@ -634,9 +645,9 @@ smk smk_open(const char* fn, unsigned char m)
         }
 
         /* Onto FrameSizes array */
-        s->frame_flags = malloc(s->f);
+        smk_malloc(s->frame_flags,s->f);
 
-        s->chunk_size = malloc(s->f * 4);
+        smk_malloc(s->chunk_size,s->f * 4);
         for (temp_u = 0; temp_u < s->f; temp_u ++)
         {
             s->chunk_size[temp_u] = smk_read_ui(fp);
@@ -649,7 +660,7 @@ smk smk_open(const char* fn, unsigned char m)
         }
 
         /* That was easy... FrameTypes! */
-        s->frame_type = malloc(s->f);
+        smk_malloc(s->frame_type,s->f);
         for (temp_u = 0; temp_u < s->f; temp_u ++)
         {
             s->frame_type[temp_u] = smk_read_uc(fp);
@@ -658,7 +669,7 @@ smk smk_open(const char* fn, unsigned char m)
         /* HuffmanTrees
            We know the sizes already: read and assemble into
            something actually parse-able at run-time */
-        hufftree_chunk = malloc(tree_size);
+        smk_malloc(hufftree_chunk,tree_size);
         retval = fread(hufftree_chunk,1,tree_size,fp);
         if (retval != tree_size)
         {
@@ -669,19 +680,23 @@ smk smk_open(const char* fn, unsigned char m)
         /* set up a Bitstream */
         bs = smk_bs_init(hufftree_chunk, tree_size);
         /* create some tables */
+        printf("Checking for MMAP tree...\n");
         s->video.mmap = smk_build_bigtree(bs);
+        printf("Checking for MCLR tree...\n");
         s->video.mclr = smk_build_bigtree(bs);
+        printf("Checking for TYPE tree...\n");
         s->video.type = smk_build_bigtree(bs);
+        printf("Checking for FULL tree...\n");
         s->video.full = smk_build_bigtree(bs);
 
         /* Read in the rest of the data. */
         /*   For MODE_MEMORY, read the chunks and store */
         if (s->mode == SMK_MODE_MEMORY)
         {
-            s->chunk_data = (unsigned char **)malloc(s->f * sizeof(unsigned char*));
+            smk_malloc(s->chunk_data,s->f * sizeof(unsigned char*));
             for (temp_u = 0; temp_u < s->f; temp_u ++)
             {
-                s->chunk_data[temp_u] = (unsigned char *)malloc(s->chunk_size[temp_u]);
+                smk_malloc(s->chunk_data[temp_u],s->chunk_size[temp_u]);
                 retval = fread(s->chunk_data[temp_u],1,s->chunk_size[temp_u],fp);
                 if (retval != s->chunk_size[temp_u])
                 {
@@ -692,7 +707,7 @@ smk smk_open(const char* fn, unsigned char m)
         } else {
             /* MODE_DISK: don't read anything now, just precompute offsets. */
             /*   use fseek to verify that the file is "complete" */
-            s->chunk_offset = (unsigned int *)malloc(s->f * sizeof(unsigned int));
+            smk_malloc(s->chunk_offset,s->f * sizeof(unsigned int));
             for (temp_u = 0; temp_u < s->f; temp_u ++)
             {
                 s->chunk_offset[temp_u] = ftell(fp);
@@ -736,55 +751,53 @@ void smk_close(smk s)
 
     if (s != NULL)
     {
-        if (s->palette.buffer != NULL) free(s->palette.buffer);
-        if (s->video.buffer != NULL) free (s->video.buffer);
+        smk_free(s->palette.buffer);
+        smk_free (s->video.buffer);
         for (u=0; u<7; u++)
-        {
-            if (s->audio[u].buffer != NULL) free (s->audio[u].buffer);
-        }
+            smk_free (s->audio[u].buffer);
 
         /* Huffman trees */
         if (s->video.mmap != NULL)
         {
             smk_del_huffman(s->video.mmap->t);
-            free(s->video.mmap);
+            smk_free(s->video.mmap);
         }
         if (s->video.mclr != NULL)
         {
             smk_del_huffman(s->video.mclr->t);
-            free(s->video.mclr);
+            smk_free(s->video.mclr);
         }
         if (s->video.full != NULL)
         {
             smk_del_huffman(s->video.full->t);
-            free(s->video.full);
+            smk_free(s->video.full);
         }
         if (s->video.type != NULL)
         {
             smk_del_huffman(s->video.type->t);
-            free(s->video.type);
+            smk_free(s->video.type);
         }
 
-        if (s->frame_flags != NULL) free(s->frame_flags);
-        if (s->frame_type != NULL) free(s->frame_type);
+        smk_free(s->frame_flags);
+        smk_free(s->frame_type);
 
         /* disk-mode */
         if (s->fp != NULL) fclose(s->fp);
-        if (s->chunk_offset != NULL) free(s->chunk_offset);
+        smk_free(s->chunk_offset);
 
         /* mem-mode */
         if (s->chunk_data != NULL)
         {
             for (u=0; u<s->f; u++)
             {
-                if (s->chunk_data[u] != NULL) free(s->chunk_data[u]);
+                smk_free(s->chunk_data[u]);
             }
-            free(s->chunk_data);
+            smk_free(s->chunk_data);
         }
 
-        if (s->chunk_size != NULL) free(s->chunk_size);
+        smk_free(s->chunk_size);
 
-        free(s);
+        smk_free(s);
     }
 }
 
