@@ -1,4 +1,13 @@
-/* see smacker.h */
+/*
+	libsmacker - A C library for decoding .smk Smacker Video files
+	Copyright (C) 2012-2013 Greg Kennedy
+
+	See smacker.h for more information.
+
+	smacker.c
+		Main implementation file of libsmacker
+*/
+	
 #include "smacker.h"
 
 /* safe malloc and free */
@@ -107,6 +116,7 @@ struct smk_t
     /* shared */
     unsigned int *chunk_size;
 
+    /* decoded components */
     /* palette */
     struct smk_palette_t  palette;
 
@@ -122,9 +132,10 @@ struct smk_t
    when size doesn't match expected */
 static void smk_read(void *buf, size_t size, FILE *fp)
 {
-    if (fread(buf,size,1,fp) != 1)
+    size_t bytesRead = fread(buf,1,size,fp);
+    if (bytesRead != size)
     {
-        fprintf(stderr,"libsmacker::smk_read() - ERROR - Short read looking for %lu bytes\n",size);
+        fprintf(stderr,"libsmacker::smk_read() - ERROR - Short read looking for %lu bytes, got %lu instead\n",(unsigned long)size, (unsigned long)bytesRead);
         longjmp(jb,0);
     }
 }
@@ -157,11 +168,13 @@ static unsigned int smk_grab_ui(unsigned char *buf)
         ((unsigned int) buf[0]);
 }
 
+/* Decompresses a palette-frame. */
 static unsigned char *smk_render_palette(smk s, unsigned char *p)
 {
     unsigned int i,j,k,size;
     unsigned char *t;
 
+    /* Smacker palette map */
     const unsigned char palmap[64] = {
         0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
         0x20, 0x24, 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C,
@@ -173,8 +186,17 @@ static unsigned char *smk_render_palette(smk s, unsigned char *p)
         0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
     };
 
+    /* sanity check */
+    if (p == NULL)
+    {
+        fprintf(stderr,"libsmacker::palette_render() - ERROR: NULL palette");
+        return NULL;
+    }
+
+    /* Byte 1 in block, *4, tells how many subsequent bytes are present */
     size = 4 * (*p);
 
+    /* If palette rendering enabled... */
     if (s->palette.enable)
     {
         p ++; size --;
@@ -186,30 +208,46 @@ static unsigned char *smk_render_palette(smk s, unsigned char *p)
         {
             if ((*p) & 0x80)
             {
+                /* Copy next (c + 1) color entries of the previous palette to the next entries of the new palette. */
                 k = ((*p) & 0x7F) + 1;
-                if (s->palette.buffer != NULL)
+                if (j + k > 256 || i + k > 256)
+                {
+                    fprintf(stderr,"libsmacker::palette_render() - ERROR: frame %u, overflow, 0x80 attempt to copy %d bytes from %d to %d\n",s->cur_frame,k,j,i);
+                } else if (s->palette.buffer != NULL)
                 {
                     memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
-                    j += k;
                 } else {
                     memset(&t[i*3],0,k*3);
                 }
                 i += k;
+                j += k;
                 p ++; size --;
             } else if ((*p) & 0x40) {
+                /* Copy (c + 1) color entries of the previous palette, starting from entry (s) to the next entries of the new palette. */
+                if (size == 1)
+                {
+                    fprintf(stderr,"libsmacker::palette_render() - ERROR: frame %u, 0x40 ran out of bytes for copy\n",s->cur_frame);
+                }
                 k = ((*p) & 0x3F) + 1;  /* count */
                 p ++; size --;
                 j = (*p);
-                if (s->palette.buffer != NULL)
+                if (j + k > 256 || i + k > 256)
+                {
+                    fprintf(stderr,"libsmacker::palette_render() - ERROR: frame %u, overflow, 0x40 attempt to copy %d bytes from %d to %d\n",s->cur_frame,k,j,i);
+                } else if (s->palette.buffer != NULL)
                 {
                     memcpy(&t[i*3],&s->palette.buffer[j*3],k * 3);
-                    j += k;
                 } else {
                     memset(&t[i*3],0,k*3);
                 }
                 i += k;
+                j += k;
                 p ++; size --;
             } else {
+                if (size == 2)
+                {
+                    fprintf(stderr,"libsmacker::palette_render - ERROR: frame %u, 0x00 ran out of bytes for copy, size=%d\n",s->cur_frame,size);
+                }
                 t[(i * 3)] = palmap[*p]; p++; size --;
                 t[(i * 3) + 1] = palmap[*p]; p++; size --;
                 t[(i * 3) + 2] = palmap[*p]; p++; size --;
@@ -222,12 +260,16 @@ static unsigned char *smk_render_palette(smk s, unsigned char *p)
     }
 
     /* advance any remaining unparsed distance */
-    /* if (size > 0) { printf ("Info: advancing %u bytes after palette decompress.\n",size); } */
+#ifdef _DEBUG
+    if (size > 0) printf ("Info: advancing %u bytes after palette decompress.\n",size);
+    if (i < 256) printf ("Info: filled only %u bytes of palette in decompress.\n",i);
+#endif
     p += size;
 
     return p;
 }
 
+/* Decompress audio track i. */
 static unsigned char *smk_render_audio(smk s, unsigned int i, unsigned char *p)
 {
     unsigned int j,k,size;
@@ -235,19 +277,24 @@ static unsigned char *smk_render_audio(smk s, unsigned int i, unsigned char *p)
     struct smk_bit_t *bs;
 
     /* used for audio decoding */
-    struct smk_huff_t *aud_tree[4];
+    struct smk_huff_t *aud_tree[4] = {NULL,NULL,NULL,NULL};
 
+    /* unsigned int tells us size of audio chunk */
     size = smk_grab_ui(p);
 
+    /* only perform decompress if track is enabled */
     if (s->audio[i].enable)
     {
         p += 4; size -= 4;
 
+        /* only perform decompress if track is enabled */
         if (s->audio[i].compress)
         {
+            /* chunk is compressed (huff-compressed dpcm), retrieve unpacked buffer size */
             s->audio[i].buffer_size = smk_grab_ui(p);
             p += 4; size -= 4;
 
+            /* malloc a buffer to hold unpacked audio */
             smk_malloc(t,s->audio[i].buffer_size);
 
             /* Compressed audio: must unpack here */
@@ -356,6 +403,7 @@ static unsigned char *smk_render_audio(smk s, unsigned int i, unsigned char *p)
             /* All done with the bitstream, free it. */
             smk_free(bs);
         } else {
+            /* Raw PCM data, update buffer size and malloc */
             s->audio[i].buffer_size = size;
             smk_malloc(t,s->audio[i].buffer_size);
 
@@ -387,7 +435,6 @@ static unsigned char *smk_render_video(smk s, unsigned int size, unsigned char *
     unsigned char blocklen;
     unsigned char typedata;
 
-
     const unsigned short sizetable[64] = {
         1,     2,    3,    4,    5,    6,    7,    8,
         9,    10,   11,   12,   13,   14,   15,   16,
@@ -416,14 +463,29 @@ static unsigned char *smk_render_video(smk s, unsigned int size, unsigned char *
 
         while ( ((row * s->video.w) + col) < (s->video.w * s->video.h) )
         {
-if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: out of bits in Bitstream, bailing out.\n"); 
-    p += size;
-    return p; }
+            if (!smk_bits_left(bs))
+            {
+                fprintf(stderr,"libsmacker::smk_render_video() - ERROR - out of bits in bitstream\n");
+    		p += size;
+    		return p;
+            }
             unpack = smk_bigtree_lookup(bs,s->video.type);
             type = ((unpack & 0x0003));
             blocklen = ((unpack & 0x00FC) >> 2 );
             typedata = ((unpack & 0xFF00) >> 8);
-/* printf("Retrieved: type %u, blocklen %u, typedata %02X.  (overall unpack: %04X) BS position %u.%u\n",type,blocklen,typedata,unpack,bs->byte_num,bs->bit_num); */
+ /* printf("Retrieved: type %u, blocklen %u, typedata %02X.  (overall unpack: %04X) BS position %u.%u\n",type,blocklen,typedata,unpack,bs->byte_num,bs->bit_num); */
+            /* support for v4 full-blocks */
+            if (type == 1 && s->v == '4')
+            {
+              if (smk_bs_1(bs))
+              {
+                type = 4;
+              } else if (smk_bs_1(bs))
+              {
+                  type = 5;
+              }
+            }
+
             for (j = 0; (j < sizetable[blocklen]) && (((row * s->video.w) + col) < (s->video.w * s->video.h)); j ++)
             {
                 switch(type)
@@ -442,22 +504,17 @@ if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: o
                         }
                         break;
 
-                    case 1:
-                        if (s->v == '2')
+                    case 1: /* FULL BLOCK */
+                        for (k = 0; k < 4; k ++)
                         {
-                            for (k = 0; k < 4; k ++)
-                            {
-                              unpack = smk_bigtree_lookup(bs,s->video.full);
-                              t[(row + k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
-                              t[(row + k) * s->video.w + col + 2] = (unpack & 0x00FF);
-                              unpack = smk_bigtree_lookup(bs,s->video.full);
-                              t[(row + k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
-                              t[(row + k) * s->video.w + col] = (unpack & 0x00FF);
-                            }
-                        } else {
+                          unpack = smk_bigtree_lookup(bs,s->video.full);
+                          t[(row + k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                          t[(row + k) * s->video.w + col + 2] = (unpack & 0x00FF);
+                          unpack = smk_bigtree_lookup(bs,s->video.full);
+                          t[(row + k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
+                          t[(row + k) * s->video.w + col] = (unpack & 0x00FF);
                         }
                         break;
-
                     case 2: /* VOID BLOCK */
                         memcpy(&t[row * s->video.w + col], &s->video.buffer[row * s->video.w + col], 4);
                         memcpy(&t[(row + 1) * s->video.w + col], &s->video.buffer[(row + 1) * s->video.w + col], 4);
@@ -469,6 +526,35 @@ if (bs->byte_num + 1 == bs->size && bs->bit_num == 7) { fprintf(stderr,"ERROR: o
                         memset(&t[(row + 1) * s->video.w + col],typedata,4);
                         memset(&t[(row + 2) * s->video.w + col],typedata,4);
                         memset(&t[(row + 3) * s->video.w + col],typedata,4);
+                        break;
+                    case 4: /* V4 DOUBLE BLOCK */
+                        for (k = 0; k < 2; k ++)
+                        {
+                          unpack = smk_bigtree_lookup(bs,s->video.full);
+                          t[(row + 2 * k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k) * s->video.w + col + 2] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k + 1) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k + 1) * s->video.w + col + 2] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k) * s->video.w + col + 1] = (unpack & 0x00FF);
+                          t[(row + 2 * k) * s->video.w + col] = (unpack & 0x00FF);
+                          t[(row + 2 * k + 1) * s->video.w + col + 1] = (unpack & 0x00FF);
+                          t[(row + 2 * k + 1) * s->video.w + col] = (unpack & 0x00FF);
+                        }
+                        break;
+                    case 5: /* V4 HALF BLOCK */
+                        for (k = 0; k < 2; k ++)
+                        {
+                          unpack = smk_bigtree_lookup(bs,s->video.full);
+                          t[(row + 2 * k) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k) * s->video.w + col + 2] = (unpack & 0x00FF);
+                          t[(row + 2 * k + 1) * s->video.w + col + 3] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k + 1) * s->video.w + col + 2] = (unpack & 0x00FF);
+                          unpack = smk_bigtree_lookup(bs,s->video.full);
+                          t[(row + 2 * k) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k) * s->video.w + col] = (unpack & 0x00FF);
+                          t[(row + 2 * k + 1) * s->video.w + col + 1] = ((unpack & 0xFF00) >> 8);
+                          t[(row + 2 * k + 1) * s->video.w + col] = (unpack & 0x00FF);
+                        }
                         break;
                 }
                 col += 4; if (col >= s->video.w) { col = 0; row += 4; }
@@ -550,7 +636,7 @@ static void smk_render(smk s)
 
 /* PUBLIC FUNCTIONS */
 /* open an smk (from a file) */
-smk smk_open(const char* fn, unsigned char m)
+smk smk_open_file(const char* fn, unsigned char m)
 {
     /* sadly we must declare this volatile */
     volatile smk s;
@@ -573,14 +659,14 @@ smk smk_open(const char* fn, unsigned char m)
     if (fp == NULL)
     {
         fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: could not open file (errno: %d)\n",fn,errno);
-        perror ("    Error reported was: ");
+        perror ("    Error reported was");
         return NULL;
     }
 
     smk_malloc (s,sizeof (struct smk_t));
     if (s == NULL)
     {
-        fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: Unable to allocate %lu bytes for smk struct\n",fn,sizeof(struct smk_t));
+        fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: Unable to allocate %lu bytes for smk struct\n",fn,(unsigned long)sizeof(struct smk_t));
         fclose(fp);
         return NULL;
     }
@@ -701,7 +787,7 @@ smk smk_open(const char* fn, unsigned char m)
         retval = fread(hufftree_chunk,1,tree_size,fp);
         if (retval != tree_size)
         {
-            fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: short read on hufftree block (wanted %u, got %lu)\n",fn,tree_size,retval);
+            fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: short read on hufftree block (wanted %u, got %lu)\n",fn,tree_size,(unsigned long)retval);
             longjmp(jb,0);
         }
 
@@ -728,7 +814,7 @@ smk smk_open(const char* fn, unsigned char m)
                 retval = fread(s->chunk_data[temp_u],1,s->chunk_size[temp_u],fp);
                 if (retval != s->chunk_size[temp_u])
                 {
-                    fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: short read on chunk_data block[%u] (wanted %u, got %lu)\n",fn,temp_u,s->chunk_size[temp_u],retval);
+                    fprintf(stderr,"libsmacker::smk_open(%s) - ERROR: short read on chunk_data block[%u] (wanted %u, got %lu)\n",fn,temp_u,s->chunk_size[temp_u],(unsigned long)retval);
                     longjmp(jb,0);
                 }
             }

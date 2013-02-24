@@ -1,3 +1,14 @@
+/*
+	libsmacker - A C library for decoding .smk Smacker Video files
+	Copyright (C) 2012-2013 Greg Kennedy
+
+	See smacker.h for more information.
+
+	smk_bitstream.h
+		SMK bitstream structure. Presents a block of raw bytes one
+		bit at a time, and protects against over-read.
+*/
+
 #ifndef SMK_BITSTREAM_H
 #define SMK_BITSTREAM_H
 

@@ -1,6 +1,17 @@
-#include <stdio.h>
+/*
+	libsmacker - A C library for decoding .smk Smacker Video files
+	Copyright (C) 2012-2013 Greg Kennedy
+
+	See smacker.h for more information.
+
+	driver.c
+		Driver program
+*/
+
 
 #include "smacker.h"
+
+#include <stdio.h>
 
 void dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, unsigned int h, unsigned int framenum)
 {
@@ -70,7 +81,7 @@ int main (int argc, char *argv[])
     }
 
     //s = smk_open(argv[1],SMK_MODE_DISK);
-    s = smk_open(argv[1],SMK_MODE_MEMORY);
+    s = smk_open_file(argv[1],SMK_MODE_MEMORY);
     if (s == NULL)
     {
         printf("Errors encountered opening %s, exiting.\n",argv[1]);

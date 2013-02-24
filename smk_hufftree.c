@@ -1,4 +1,13 @@
-/* see smacker.h */
+/*
+	libsmacker - A C library for decoding .smk Smacker Video files
+	Copyright (C) 2012-2013 Greg Kennedy
+
+	See smacker.h for more information.
+
+	smk_hufftree.c
+		Implementation of Smacker huffman trees.
+*/
+	
 #include "smk_hufftree.h"
 
 /* malloc and friends */
@@ -14,6 +23,7 @@ void smk_del_huffman(struct smk_huff_t *t)
     smk_free(t);
 }
 
+/* Recursive tree-building function. */
 static struct smk_huff_t *smk_tree_rec(struct smk_bit_t *bs)
 {
     struct smk_huff_t *ret;
@@ -251,11 +261,17 @@ static unsigned short smk_bigtree_lookup_rec (struct smk_bit_t *bs, struct smk_h
             val = t->value;
         }
 
-        if ( t->escapecode != 0 )
+        if ( t->escapecode != 0 && big->s16[0] != val)
         {
-            big->s16[2] = big->s16[1];
-            big->s16[1] = big->s16[0];
-            big->s16[0] = val;
+            if (big->s16[1] == val)
+            {
+              big->s16[1] = big->s16[0];
+              big->s16[0] = val;
+            } else {
+              big->s16[2] = big->s16[1];
+              big->s16[1] = big->s16[0];
+              big->s16[0] = val;
+            }
         }
 
         return val;
