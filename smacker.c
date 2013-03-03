@@ -671,12 +671,10 @@ char smk_enable_all(smk object, unsigned char mask)
 
 	for (i = 0; i < 7; i ++)
 	{
-		if (object->audio[i] == NULL)
+		if (object->audio[i] != NULL)
 		{
-			fprintf(stderr,"libsmacker::smk_enable_all(object,%x) - ERROR: cannot call Enable on NULL audio[%u] member\n",mask,i);
-			return -1;
+			object->audio[i]->enable = (mask & (0x01 << i));
 		}
-		object->audio[i]->enable = (mask & (0x01 << i));
 	}
 
 	return 0;
@@ -718,18 +716,50 @@ char smk_enable_audio(smk object, unsigned char track, unsigned char enable)
 
 unsigned char * smk_get_palette(smk s)
 {
+	if (s == NULL)
+	{
+		return NULL;
+	}
+	if (s->video == NULL)
+	{
+		return NULL;
+	}
 	return s->video->palette;
 }
 unsigned char * smk_get_video(smk s)
 {
+	if (s == NULL)
+	{
+		return NULL;
+	}
+	if (s->video == NULL)
+	{
+		return NULL;
+	}
 	return s->video->frame;
 }
 unsigned char * smk_get_audio(smk s, unsigned char t)
 {
+	if (s == NULL)
+	{
+		return NULL;
+	}
+	if (s->audio[t] == NULL)
+	{
+		return NULL;
+	}
 	return s->audio[t]->buffer;
 }
 unsigned long smk_get_audio_size(smk s, unsigned char t)
 {
+	if (s == NULL)
+	{
+		return 0;
+	}
+	if (s->audio[t] == NULL)
+	{
+		return 0;
+	}
 	return s->audio[t]->buffer_size;
 }
 

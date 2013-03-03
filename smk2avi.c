@@ -1,14 +1,16 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "smacker.h"
 
-#include <stdio.h>
-
-#define w(p,n) fwrite(x,1,n,p)
+#define w(p,n) fwrite(p,1,n,fp)
 
 #define LIST w("LIST",4);
 
 #define lu(p) \
 { \
-	b[0] = ((p & 0x000000FF)); \
+	b[0] = (p & 0x000000FF); \
 	b[1] = ((p & 0x0000FF00) >> 8); \
 	b[2] = ((p & 0x00FF0000) >> 16); \
 	b[3] = ((p & 0xFF000000) >> 24); \
@@ -22,7 +24,8 @@ void process(const char *fn)
 	char outfile[256];
 	unsigned char b[4];
 
-	int		i;
+	int		i,j;
+	unsigned long temp_u;
 
 	/* all and video info */
 	unsigned long	w, h, f;
@@ -50,26 +53,29 @@ void process(const char *fn)
 
 	/* make 2 passes through the file.
 		first one is to pull all the audio tracks only. */
-	smk_enable_all(s,0x7F);
+	smk_enable_all(s,a_t);
 	for (i = 0; i < 7; i ++)
 	{
 		audio_size[i] = malloc(f * sizeof(unsigned long));
 		audio_data[i] = malloc(f * sizeof(unsigned char*));
 	}
 
+	printf("\tAudio processing frame: ");
 	smk_first(s);
 	for (cur_frame = 0; cur_frame < f; cur_frame ++)
 	{
+		printf("%u... ",cur_frame);
 		for (i = 0; i < 7; i ++)
 		{
-			audio_size[i][f] = smk_get_audio_size(smk,i);
+			audio_size[i][f] = smk_get_audio_size(s,i);
 			audio_data[i][f] = malloc(audio_size[i][f]);
 			memcpy(audio_data[i][f],smk_get_audio(s,i),audio_size[i][f]);
 		}
 		smk_next(s);
 	}
+	printf("done!\n");
 
-	smk_enable_all(s,0x01);
+	smk_enable_all(s,SMK_VIDEO_TRACK);
 	smk_first(s);
 
 	sprintf(outfile,"%s.avi",fn);
@@ -92,7 +98,8 @@ void process(const char *fn)
 			w("avih",4);
 			lu(44);
 			{
-				lu( (1000000 / fps ) + .5); // framerate
+				temp_u = (1000000 / fps ) + .5;
+				lu( temp_u ); // framerate
 				lu( 0 );
 				lu( 1 );
 				lu( 0 );
@@ -118,7 +125,8 @@ void process(const char *fn)
 					lu(0);
 					lu(0);
 					lu(0);
-					lu( (1000000 / fps ) + .5 );
+				temp_u = (1000000 / fps ) + .5;
+				lu( temp_u ); // framerate
 					lu( 1000000);
 					lu(0);
 					lu(0);
@@ -135,7 +143,7 @@ void process(const char *fn)
 			}
 	
 			// stream list: audio stream(s)
-			for (i = 0; i < num_tracks; i++)
+			for (i = 0; i < 7; i++)
 			{
 				LIST
 				lu(0);
@@ -166,12 +174,10 @@ void process(const char *fn)
 			lu(0);
 			w("data",4);
 	
-			for (i = 0; i < num_tracks; i++)
+			for (j = 0; j < 7; j++)
 			{
-				sprintf(b,"%02uwb",(i + 1));
+				sprintf(b,"%02uwb",(j + 1));
 				w(b,4);
-	=			w("%02uwb",4);
-////L
 				w("data",4);
 			}
 		}

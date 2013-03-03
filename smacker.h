@@ -48,14 +48,14 @@ typedef struct smk_t *smk;
 #define	SMK_FLAG_Y_DOUBLE	0x02
 
 /* track mask and enable bits */
-#define	SMK_VIDEO_TRACK	0x01
-#define	SMK_AUDIO_TRACK_0	0x02
-#define	SMK_AUDIO_TRACK_1	0x04
-#define	SMK_AUDIO_TRACK_2	0x08
-#define	SMK_AUDIO_TRACK_3	0x10
-#define	SMK_AUDIO_TRACK_4	0x20
-#define	SMK_AUDIO_TRACK_5	0x40
-#define	SMK_AUDIO_TRACK_6	0x80
+#define	SMK_AUDIO_TRACK_0	0x01
+#define	SMK_AUDIO_TRACK_1	0x02
+#define	SMK_AUDIO_TRACK_2	0x04
+#define	SMK_AUDIO_TRACK_3	0x08
+#define	SMK_AUDIO_TRACK_4	0x10
+#define	SMK_AUDIO_TRACK_5	0x20
+#define	SMK_AUDIO_TRACK_6	0x40
+#define	SMK_VIDEO_TRACK	0x80
 
 /* PUBLIC FUNCTIONS */
 
