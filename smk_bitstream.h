@@ -34,10 +34,28 @@ struct smk_bit_t *smk_bs_init(unsigned char *, unsigned long);
 /* As it turns out, this isn't needed. */
 /* void smk_bs_align(struct smk_bit_t *); */
 
+/* This macro interrogates return code from bs_read_1 and
+	jumps to error label if problems occur. */
+#define smk_bs_safe_read_1(t,uc) \
+{ \
+	if ((char)(uc = smk_bs_read_1(t)) < 0) \
+	{ \
+		fprintf(stderr,"libsmacker::smk_bs_safe_read_1(" #t "," #uc ") - ERROR (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
+		goto error; \
+	} \
+}
 /* Read a single bit from the bitstream, and advance.
 	Returns -1 on error. */
 char smk_bs_read_1(struct smk_bit_t *);
 
+#define smk_bs_safe_read_8(t,s) \
+{ \
+	if ((short)(s = smk_bs_read_8(t)) < 0) \
+	{ \
+		fprintf(stderr,"libsmacker::smk_bs_safe_read_8(" #t "," #s ") - ERROR (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
+		goto error; \
+	} \
+}
 /* Read eight bits from the bitstream (one byte), and advance.
 	Returns -1 on error. */
 short smk_bs_read_8(struct smk_bit_t *);

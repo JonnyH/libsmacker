@@ -15,15 +15,11 @@
 #include "smk_malloc.h"
 
 /* BITSTREAM Functions */
-struct smk_bit_t *smk_bs_init(unsigned char *b, unsigned long size)
+struct smk_bit_t *smk_bs_init(unsigned char *b, const unsigned long size)
 {
 	struct smk_bit_t *ret = NULL;
 
-	if (b == NULL)
-	{
-		fprintf(stderr,"libsmacker::smk_bs_init(b,%lu) - ERROR: passed a NULL pointer for b.\n",size);
-		return NULL;
-	}
+	smk_null_check(b);
 
 	/* allocate a bitstream struct */
 	smk_malloc(ret,sizeof(struct smk_bit_t));
@@ -36,31 +32,31 @@ struct smk_bit_t *smk_bs_init(unsigned char *b, unsigned long size)
 	ret->byte_num = -1;
 	ret->bit_num = 7;
 
+	/* either way NULL is returned : ) */
+error:
 	return ret;
 }
 
 /* returns "enough bits left for a byte?" */
-static unsigned char smk_bs_query_8(struct smk_bit_t *bs)
+static char smk_bs_query_8(struct smk_bit_t *bs)
 {
 	/* sanity check */
-	if (bs == NULL)
-	{
-		fprintf(stderr,"libsmacker::smk_bs_query_8(bs) - ERROR: bs is NULL.\n");
-		return 0;
-	}
+	smk_null_check(bs);
 	return (bs->byte_num + 1 < bs->size);
+
+error:
+	return -1;
 }
 
 /* returns "any bits left?" */
-static unsigned char smk_bs_query_1(struct smk_bit_t *bs)
+static char smk_bs_query_1(struct smk_bit_t *bs)
 {
 	/* sanity check */
-	if (bs == NULL)
-	{
-		fprintf(stderr,"libsmacker::smk_bs_query_1(bs) - ERROR: bs is NULL.\n");
-		return 0;
-	}
+	smk_null_check(bs)
 	return (bs->bit_num < 7 || smk_bs_query_8(bs));
+
+error:
+	return -1;
 }
 
 /* Reads a bit
@@ -68,17 +64,13 @@ static unsigned char smk_bs_query_1(struct smk_bit_t *bs)
 char smk_bs_read_1(struct smk_bit_t *bs)
 {
 	/* sanity check */
-	if (bs == NULL)
-	{
-		fprintf(stderr,"libsmacker::smk_bs_read_1(bs) - ERROR: bs is NULL.\n");
-		return -1;
-	}
+	smk_null_check(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (!smk_bs_query_1(bs))
 	{
-		fprintf(stderr,"libsmacker::smk_bs_read_1(bs) - ERROR: bitstream exhausted.\n");
-		return -1;
+		fputs("libsmacker::smk_bs_read_1(bs) - ERROR: bitstream exhausted.\n",stderr);
+		goto error;
 	}
 
 	/* advance to next bit */
@@ -92,6 +84,9 @@ char smk_bs_read_1(struct smk_bit_t *bs)
 	}
 
 	return (((bs->bitstream[bs->byte_num]) & (0x01 << bs->bit_num)) != 0);
+
+error:
+	return -1;
 }
 
 /* Reads a byte
@@ -101,17 +96,13 @@ short smk_bs_read_8(struct smk_bit_t *bs)
 	unsigned char ret = 0, i;
 
 	/* sanity check */
-	if (bs == NULL)
-	{
-		fprintf(stderr,"libsmacker::smk_bs_read_8(bs) - ERROR: bs is NULL.\n");
-		return -1;
-	}
+	smk_null_check(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (!smk_bs_query_8(bs))
 	{
-		fprintf(stderr,"libsmacker::smk_bs_read_8(bs) - ERROR: bitstream exhausted.\n");
-		return -1;
+		fputs("libsmacker::smk_bs_read_8(bs) - ERROR: bitstream exhausted.\n",stderr);
+		goto error;
 	}
 
 	for (i = 0; i < 8; i ++)
@@ -120,6 +111,9 @@ short smk_bs_read_8(struct smk_bit_t *bs)
 		ret |= (smk_bs_read_1(bs) << 7);
 	}
 	return ret;
+
+error:
+	return -1;
 }
 
 /* aligns struct to start of next byte */
