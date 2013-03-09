@@ -19,7 +19,7 @@ libsmacker.so: smk_bitstream.o smk_hufftree.o smacker.o
 	gcc $(LDFLAGS) -shared -o libsmacker.so smk_bitstream.o smk_hufftree.o smacker.o
 
 clean:
-	rm -f libsmacker.* *.o
+	rm -f driver smk2avi libsmacker.* *.o
 
 driver:	libsmacker.so driver.c
 	gcc -O2 -L. -lsmacker driver.c -o driver
