@@ -22,7 +22,7 @@ clean:
 	rm -f libsmacker.* *.o
 
 driver:	libsmacker.so driver.c
-	gcc -L. -lsmacker driver.c -o driver
+	gcc -O2 -L. -lsmacker driver.c -o driver
 
 smk2avi: libsmacker.so smk2avi.c
-	gcc -L. -lsmacker smk2avi.c -o smk2avi
+	gcc -O2 -L. -lsmacker smk2avi.c -o smk2avi

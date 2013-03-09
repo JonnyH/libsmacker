@@ -271,6 +271,7 @@ struct smk_huff_big_t *smk_huff_big_build(struct smk_bit_t* bs)
 		smk_bs_safe_read_8(bs,lowval);
 		smk_bs_safe_read_8(bs,big->cache[i]);
 		big->cache[i] = lowval | (big->cache[i] << 8);
+/* fprintf(stderr,"Escape code cache: cache[%d] = %d\n",i,big->cache[i]); */
 	}
 
 	/* Finally, call recursive function to retrieve the Bigtree. */
@@ -326,18 +327,9 @@ static int smk_huff_big_lookup_rec (struct smk_bit_t *bs, unsigned short cache[3
 		{
 			/* Update the cache, by moving val to the front of the queue,
 				if it isn't already there. */
-			if (cache[1] != val)
-			{
-				cache[2] = cache[1];
-				cache[1] = cache[0];
-				cache[0] = val;
-			}
-			else
-			{
-			/* Special case where val is the second item in the queue. */
-				cache[1] = cache[0];
-				cache[0] = val;
-			}
+			cache[2] = cache[1];
+			cache[1] = cache[0];
+			cache[0] = val;
 		}
 
 		return val;

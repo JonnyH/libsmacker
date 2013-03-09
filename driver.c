@@ -68,7 +68,7 @@ int
 main(int argc, char *argv[])
 {
 	unsigned long	w, h, f;
-	double		fps;
+	double 	usf;
 	smk		s;
 
 	char		filename  [128];
@@ -88,10 +88,10 @@ main(int argc, char *argv[])
 		return -1;
 	}
 	/* print some info about the file */
-	smk_info_all(s, NULL, &f, &fps);
+	smk_info_all(s, NULL, &f, &usf);
 	smk_info_video(s, &w, &h, NULL);
 
-	printf("Opened file %s\nWidth: %d\nHeight: %d\nFrames: %d\nFPS: %f\n", argv[1], w, h, f, fps);
+	printf("Opened file %s\nWidth: %d\nHeight: %d\nFrames: %d\nFPS: %f\n", argv[1], w, h, f, 1000000.0 / usf);
 
 	unsigned char	a_t, a_c[7], a_d[7];
 	unsigned long	a_r[7];
@@ -153,7 +153,7 @@ main(int argc, char *argv[])
 				fwrite(smk_get_audio(s, i), smk_get_audio_size(s, i), 1, fpo[i]);
 			}
 		}
-		printf(" -> Frame %d\n", cur_frame);
+		fprintf(stderr," -> Frame %d\n", cur_frame);
 		//Advance to next frame
 
 	}

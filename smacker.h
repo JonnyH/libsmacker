@@ -70,7 +70,7 @@ smk smk_open_memory(const unsigned char *buffer, unsigned long size);
 void smk_close(smk object);
 
 /* GET FILE INFO OPERATIONS */
-char smk_info_all(smk object, unsigned long *frame, unsigned long *frame_count, double *fps);
+char smk_info_all(smk object, unsigned long *frame, unsigned long *frame_count, double *usf);
 char smk_info_video(smk object, unsigned long *w, unsigned long *h, unsigned char *y_scale_mode);
 char smk_info_audio(smk object, unsigned char *track_mask, unsigned char channels[7], unsigned char bitdepth[7], unsigned long audio_rate[7]);
 
