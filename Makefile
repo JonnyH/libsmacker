@@ -17,7 +17,7 @@ uninstall:	libsmacker.so
 clean:
 	rm -f driver smk2avi libsmacker.* *.o
 
-samples:	driver smk2avi libsmacker.so
+samples:	driver.c smk2avi.c libsmacker.so
 	gcc -O2 -L. -lsmacker driver.c -o driver
 	gcc -O2 -L. -lsmacker smk2avi.c -o smk2avi
 
