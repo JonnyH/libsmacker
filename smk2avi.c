@@ -29,7 +29,7 @@ void process(const char *fn)
 	FILE *fp;
 	smk s;
 	char outfile[256];
-	unsigned char b[4];
+	unsigned char b[5];
 
 	int		i,j,k;
 	unsigned long temp_u;
@@ -264,7 +264,7 @@ printf("-> Audio header %d, %dhz, %d bits, %d channels\n",i,a_r[i],a_d[i],a_c[i]
 
 			if (frame == NULL || pal == NULL) goto error;
 	
-			for (j = h - 1; j >= 0; j--)
+			for (j = 0; j < h; j++)
 			{
 				for (k = 0; k < w; k++)
 				{
