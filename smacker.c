@@ -321,7 +321,7 @@ smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned long s
 		{
 			/* Audio track specifies "exists" flag, malloc structure and copy components. */
 			smk_malloc(s->audio[temp_l],sizeof(struct smk_audio_t));
-			if (temp_u & (1 << 31))
+			if (temp_u & (1u << 31))
 			{
 				s->audio[temp_l]->compress = 1;
 			}
