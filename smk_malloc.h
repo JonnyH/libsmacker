@@ -12,8 +12,11 @@
 #define SMK_MALLOC_H
 
 #include <stdlib.h>
+/* fprintf */
 #include <stdio.h>
-/* for memset */
+
+/* Error messages from calloc */
+#include <errno.h>
 #include <string.h>
 
 /* "safe" null check:
@@ -22,15 +25,13 @@
 { \
 	if (!p) \
 	{ \
-		fprintf(stderr,"libsmacker::smk_null_check(" #p "): ERROR: NULL POINTER at line %lu, file %s\n", (unsigned long)__LINE__, __FILE__); \
+		fprintf(stderr, "libsmacker::smk_null_check(" #p "): ERROR: NULL POINTER at line %lu, file %s\n", (unsigned long)__LINE__, __FILE__); \
 		goto error; \
 	} \
 }
 
-/*
-	Safe free: attempts to prevent double-free by setting pointer to NULL.
-		Warns on attempts to free a NULL pointer.
-*/
+/* Safe free: attempts to prevent double-free by setting pointer to NULL.
+	Optionally warns on attempts to free a NULL pointer. */
 #define smk_free(p) \
 { \
 	if (p) \
@@ -40,29 +41,29 @@
 	} \
 /*	else \
 	{ \
-		fprintf(stderr,"libsmacker::smk_free(" #p ") - Warning: attempt to free NULL pointer (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
+		fprintf(stderr, "libsmacker::smk_free(" #p ") - Warning: attempt to free NULL pointer (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
 	} */ \
 }
 
 /*
-	Safe malloc: exits if malloc() returns NULL.
+	Safe malloc: exits if calloc() returns NULL.
+		Also initializes blocks to 0.
 	Ideally, one should not exit() in a library. However, if you cannot
-		malloc(), you probably have bigger problems.
+		calloc(), you probably have bigger problems.
 */
-#define smk_malloc(p,x) \
+#define smk_malloc(p, x) \
 { \
 	if (p) \
 	{ \
-		fprintf(stderr,"libsmacker::smk_malloc(" #p ",%lu) - Warning: freeing non-NULL pointer before malloc (file: %s, line: %lu)\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__); \
+		fprintf(stderr, "libsmacker::smk_malloc(" #p ",%lu) - Warning: freeing non-NULL pointer before calloc (file: %s, line: %lu)\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__); \
 		smk_free(p); \
 	} \
-	p = malloc(x); \
+	p = calloc(1, x); \
 	if (!p) \
 	{ \
-		fprintf(stderr,"libsmacker::smk_malloc(" #p ",%lu) - ERROR: malloc() returned NULL (file: %s, line: %lu)\n", (unsigned long) x,  __FILE__, (unsigned long)__LINE__); \
+		fprintf(stderr, "libsmacker::smk_malloc(" #p ",%lu) - ERROR: calloc() returned NULL (file: %s, line: %lu)\n\tError [%d]: %s\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__, errno, strerror(errno)); \
 		exit(EXIT_FAILURE); \
 	} \
-	memset(p,0,x); \
 }
 
 #endif

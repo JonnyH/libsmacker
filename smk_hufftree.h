@@ -16,37 +16,13 @@
 
 #include "smk_bitstream.h"
 
-/*
-	Tree node structure.
-	If b0 is non-null, this is a branch, and b1 from the union should be used.
-	If b0 is null, this is a leaf, and val / escape code from union should be used.
-*/
-struct smk_huff_t
-{
-	struct smk_huff_t *b0;
-	union
-	{
-		struct smk_huff_t *b1;
-		struct
-		{
-			unsigned short value;
-			unsigned char escapecode;
-		} leaf;
-	} u;
-};
-
-/*
-	"Big"tree struct: holds a huff_t structure,
-	as well as a cache of three 16-bit values.
-*/
-struct smk_huff_big_t
-{
-	struct smk_huff_t *t;
-	unsigned short cache[3];
-};
+/* Tree node structures - Forward declaration */
+struct smk_huff_t;
+struct smk_huff_big_t;
 
 /* function to recursively delete a huffman tree */
-void smk_huff_free(struct smk_huff_t *);
+void smk_huff_free(struct smk_huff_t* t);
+void smk_huff_big_free(struct smk_huff_big_t* big);
 
 /* This macro interrogates return code from smk_huff_lookup and
 	jumps to error label if problems occur. */
@@ -59,7 +35,7 @@ void smk_huff_free(struct smk_huff_t *);
 	} \
 }
 /* Build a tree from a bitstream */
-struct smk_huff_t *smk_huff_build(struct smk_bit_t *);
+struct smk_huff_t* smk_huff_build(struct smk_bit_t* bs);
 
 /* This macro interrogates return code from smk_huff_lookup and
 	jumps to error label if problems occur. */
@@ -73,7 +49,7 @@ struct smk_huff_t *smk_huff_build(struct smk_bit_t *);
 }
 /* Look up an 8-bit value in the referenced tree by following a bitstream
 	returns -1 on error */
-short smk_huff_lookup (struct smk_bit_t *, const struct smk_huff_t *);
+short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t);
 
 #define smk_huff_big_safe_build(bs,t) \
 { \
@@ -84,7 +60,7 @@ short smk_huff_lookup (struct smk_bit_t *, const struct smk_huff_t *);
 	} \
 }
 /* Build a bigtree from a bitstream */
-struct smk_huff_big_t *smk_huff_big_build(struct smk_bit_t *);
+struct smk_huff_big_t* smk_huff_big_build(struct smk_bit_t* bs);
 
 #define smk_huff_big_safe_lookup(bs,t,s) \
 { \
@@ -96,9 +72,9 @@ struct smk_huff_big_t *smk_huff_big_build(struct smk_bit_t *);
 }
 /* Look up a 16-bit value in the bigtree by following a bitstream
 	returns -1 on error */
-long smk_huff_big_lookup (struct smk_bit_t *, struct smk_huff_big_t *);
+long smk_huff_big_lookup(struct smk_bit_t* bs, struct smk_huff_big_t* big);
 
 /* Reset the cache in a bigtree */
-void smk_huff_big_reset (struct smk_huff_big_t *);
+void smk_huff_big_reset(struct smk_huff_big_t* big);
 
 #endif

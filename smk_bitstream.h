@@ -12,23 +12,12 @@
 #ifndef SMK_BITSTREAM_H
 #define SMK_BITSTREAM_H
 
-/*
-	Bitstream structure
-	Pointer to raw block of data and a size limit.
-	Maintains internal pointers to byte_num and bit_number.
-*/
-struct smk_bit_t
-{
-	unsigned char *bitstream;
-	unsigned long size;
-
-	unsigned long byte_num;
-	char bit_num;
-};
+/* Bitstream structure, Forward declaration */
+struct smk_bit_t;
 
 /* BITSTREAM Functions */
 /* Initialize a bitstream */
-struct smk_bit_t *smk_bs_init(unsigned char *, const unsigned long);
+struct smk_bit_t* smk_bs_init(const unsigned char* b, unsigned long size);
 
 /* Align the bitstream to next-byte boundary. */
 /* As it turns out, this isn't needed. */
@@ -46,7 +35,7 @@ struct smk_bit_t *smk_bs_init(unsigned char *, const unsigned long);
 }
 /* Read a single bit from the bitstream, and advance.
 	Returns -1 on error. */
-char smk_bs_read_1(struct smk_bit_t *);
+char smk_bs_read_1(struct smk_bit_t* bs);
 
 #define smk_bs_safe_read_8(t,s) \
 { \
@@ -58,6 +47,6 @@ char smk_bs_read_1(struct smk_bit_t *);
 }
 /* Read eight bits from the bitstream (one byte), and advance.
 	Returns -1 on error. */
-short smk_bs_read_8(struct smk_bit_t *);
+short smk_bs_read_8(struct smk_bit_t* bs);
 
 #endif
