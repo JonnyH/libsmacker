@@ -49,7 +49,7 @@ void process(const char *fn)
 	unsigned long total_audio_size[7] = {0};
 	unsigned long total_total_audio_size = 0;
 
-	unsigned char *pal,*frame;
+	const unsigned char *pal,*frame;
 
 	unsigned long cur_frame;
 

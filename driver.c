@@ -13,7 +13,7 @@
 #include <stdio.h>
 
 void
-dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, unsigned int h, unsigned int framenum)
+dump_bmp(const unsigned char *pal, const unsigned char *image_data, unsigned int w, unsigned int h, unsigned int framenum)
 {
 	int		i;
 	FILE           *fp;
@@ -21,6 +21,7 @@ dump_bmp(unsigned char *pal, unsigned char *image_data, unsigned int w, unsigned
 	unsigned int	temp;
 	sprintf(filename, "bmp/out_%04u.bmp", framenum);
 	fp = fopen(filename, "wb");
+	if (!fp) { fprintf(stderr, "Failed to open %s for write\n", filename); return; }
 	fwrite("BM", 2, 1, fp);
 	temp = 1078 + (w * h);
 	fwrite(&temp, 4, 1, fp);

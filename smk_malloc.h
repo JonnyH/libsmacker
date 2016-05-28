@@ -11,6 +11,7 @@
 #ifndef SMK_MALLOC_H
 #define SMK_MALLOC_H
 
+/* calloc */
 #include <stdlib.h>
 /* fprintf */
 #include <stdio.h>
@@ -21,11 +22,11 @@
 
 /* "safe" null check:
 	branches to an error block if pointer is null */
-#define smk_null_check(p) \
+#define smk_assert(p) \
 { \
 	if (!p) \
 	{ \
-		fprintf(stderr, "libsmacker::smk_null_check(" #p "): ERROR: NULL POINTER at line %lu, file %s\n", (unsigned long)__LINE__, __FILE__); \
+		fprintf(stderr, "libsmacker::smk_assert(" #p "): ERROR: NULL POINTER at line %lu, file %s\n", (unsigned long)__LINE__, __FILE__); \
 		goto error; \
 	} \
 }
@@ -48,20 +49,21 @@
 /*
 	Safe malloc: exits if calloc() returns NULL.
 		Also initializes blocks to 0.
+	Optionally warns on attempts to malloc over an existing pointer.
 	Ideally, one should not exit() in a library. However, if you cannot
 		calloc(), you probably have bigger problems.
 */
 #define smk_malloc(p, x) \
 { \
-	if (p) \
+/*	if (p) \
 	{ \
-		fprintf(stderr, "libsmacker::smk_malloc(" #p ",%lu) - Warning: freeing non-NULL pointer before calloc (file: %s, line: %lu)\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__); \
+		fprintf(stderr, "libsmacker::smk_malloc(" #p ", %lu) - Warning: freeing non-NULL pointer before calloc (file: %s, line: %lu)\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__); \
 		smk_free(p); \
-	} \
+	} */ \
 	p = calloc(1, x); \
 	if (!p) \
 	{ \
-		fprintf(stderr, "libsmacker::smk_malloc(" #p ",%lu) - ERROR: calloc() returned NULL (file: %s, line: %lu)\n\tError [%d]: %s\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__, errno, strerror(errno)); \
+		fprintf(stderr, "libsmacker::smk_malloc(" #p ", %lu) - ERROR: calloc() returned NULL (file: %s, line: %lu)\n\tReason: %s\n", (unsigned long) x, __FILE__, (unsigned long)__LINE__, strerror(errno)); \
 		exit(EXIT_FAILURE); \
 	} \
 }

@@ -46,7 +46,7 @@ struct smk_huff_big_t
 void smk_huff_free(struct smk_huff_t* t)
 {
 	/* Sanity check: do not double-free */
-	smk_null_check(t);
+	smk_assert(t);
 
 	/* If this is not a leaf node, free child trees first */
 	if (t->b0)
@@ -65,7 +65,7 @@ error: ;
 void smk_huff_big_free(struct smk_huff_big_t* big)
 {
 	/* Sanity check: do not double-free */
-	smk_null_check(big);
+	smk_assert(big);
  
 	/* free the subtree */
 	if (big->t)
@@ -78,7 +78,7 @@ error: ;
 };
 
 /* safe build with built-in error jump */
-#define smk_huff_safe_build_rec(bs, p) \
+#define smk_huff_safe_build_rec(bs,p) \
 { \
 	if (!(p = smk_huff_build_rec(bs))) \
 	{ \
@@ -94,7 +94,7 @@ static struct smk_huff_t* smk_huff_build_rec(struct smk_bit_t* bs)
 	char bit;
 
 	/* sanity check - removed: bs cannot be null, because it was checked at smk_huff_build below */
-	/* smk_null_check(bs); */
+	/* smk_assert(bs); */
 
 	/* Read the bit */
 	smk_bs_safe_read_1(bs, bit);
@@ -126,7 +126,8 @@ static struct smk_huff_t* smk_huff_build_rec(struct smk_bit_t* bs)
 	return ret;
 
 error:
-	smk_free(ret);
+	/* In case of error, undo the subtree we were building, and return NULL. */
+	smk_huff_free(ret);
 	return NULL;
 }
 
@@ -140,7 +141,7 @@ struct smk_huff_t* smk_huff_build(struct smk_bit_t* bs)
 	char bit;
 
 	/* sanity check */
-	smk_null_check(bs);
+	smk_assert(bs);
 
 	/* Smacker huff trees begin with a set-bit. */
 	smk_bs_safe_read_1(bs, bit);
@@ -168,7 +169,7 @@ struct smk_huff_t* smk_huff_build(struct smk_bit_t* bs)
 	return ret;
 
 error:
-	smk_free(ret);
+	smk_huff_free(ret);
 	return NULL;
 }
 
@@ -179,8 +180,8 @@ short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t)
 	char bit;
 
 	/* sanity check */
-	smk_null_check(bs);
-	smk_null_check(t);
+	smk_assert(bs);
+	smk_assert(t);
 
 	if (!t->b0)
 	{
@@ -188,6 +189,7 @@ short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t)
 		return t->u.leaf.value;
 	}
 
+	/* Read the next bit from bitstream to determine path */
 	smk_bs_safe_read_1(bs, bit);
 
 	if (bit)
@@ -203,7 +205,8 @@ error:
 	return -1;
 }
 
-#define smk_huff_big_safe_build_rec(bs, cache, low8, hi8, p) \
+/* safe bigtree build with built-in error jump */
+#define smk_huff_big_safe_build_rec(bs,cache,low8,hi8,p) \
 { \
 	if (!(p = smk_huff_big_build_rec(bs, cache, low8, hi8))) \
 	{ \
@@ -221,10 +224,10 @@ static struct smk_huff_t* smk_huff_big_build_rec(struct smk_bit_t* bs, const uns
 	short lowval;
 
 	/* sanity check - removed: these cannot be null, because they were checked at smk_huff_big_build below */
-	/* smk_null_check(bs);
-	smk_null_check(cache);
-	smk_null_check(low8);
-	smk_null_check(hi8); */
+	/* smk_assert(bs);
+	smk_assert(cache);
+	smk_assert(low8);
+	smk_assert(hi8); */
 
 	/* Get the first bit */
 	smk_bs_safe_read_1(bs, bit);
@@ -274,7 +277,7 @@ static struct smk_huff_t* smk_huff_big_build_rec(struct smk_bit_t* bs, const uns
 	return ret;
 
 error:
-	smk_free(ret);
+	smk_huff_free(ret);
 	return NULL;
 }
 
@@ -283,7 +286,8 @@ struct smk_huff_big_t* smk_huff_big_build(struct smk_bit_t* bs)
 {
 	struct smk_huff_big_t* big = NULL;
 
-	struct smk_huff_t* low8 = NULL, * hi8 = NULL;
+	struct smk_huff_t* low8 = NULL;
+	struct smk_huff_t* hi8 = NULL;
 
 	short lowval;
 
@@ -291,7 +295,7 @@ struct smk_huff_big_t* smk_huff_big_build(struct smk_bit_t* bs)
 	unsigned char i;
 
 	/* sanity check */
-	smk_null_check(bs);
+	smk_assert(bs);
 
 	/* Smacker huff trees begin with a set-bit. */
 	smk_bs_safe_read_1(bs, bit);
@@ -337,9 +341,9 @@ struct smk_huff_big_t* smk_huff_big_build(struct smk_bit_t* bs)
 	return big;
 
 error:
-	smk_free(big);
-	smk_free(hi8);
-	smk_free(low8);
+	smk_huff_big_free(big);
+	smk_huff_free(hi8);
+	smk_huff_free(low8);
 	return NULL;
 }
 
@@ -349,9 +353,9 @@ static int smk_huff_big_lookup_rec(struct smk_bit_t* bs, unsigned short cache[3]
 	char bit;
 
 	/* sanity check */
-	smk_null_check(bs);
-	smk_null_check(cache);
-	smk_null_check(t);
+	/* smk_assert(bs);
+	smk_assert(cache);
+	smk_assert(t); */
 
 	/* Reached a Leaf node */
 	if (!t->b0)
@@ -367,7 +371,7 @@ static int smk_huff_big_lookup_rec(struct smk_bit_t* bs, unsigned short cache[3]
 			val = t->u.leaf.value;
 		}
 
-		if ( cache[0] != val)
+		if (cache[0] != val)
 		{
 			/* Update the cache, by moving val to the front of the queue,
 				if it isn't already there. */
@@ -379,6 +383,7 @@ static int smk_huff_big_lookup_rec(struct smk_bit_t* bs, unsigned short cache[3]
 		return val;
 	}
 
+	/* Read the next bit from bitstream to determine path */
 	smk_bs_safe_read_1(bs, bit);
 
 	if (bit)
@@ -396,13 +401,25 @@ error:
 /* Convenience call-out for recursive bigtree lookup function */
 long smk_huff_big_lookup(struct smk_bit_t* bs, struct smk_huff_big_t* big)
 {
+	/* sanity check */
+	smk_assert(bs);
+	smk_assert(big);
+
 	return smk_huff_big_lookup_rec(bs, big->cache, big->t);
+
+error:
+	return -1;
 }
 
 /* Resets a Big hufftree cache */
 void smk_huff_big_reset(struct smk_huff_big_t* big)
 {
+	/* sanity check */
+	smk_assert(big);
+
 	big->cache[0] = 0;
 	big->cache[1] = 0;
 	big->cache[2] = 0;
+
+error: ;
 }

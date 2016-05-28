@@ -34,7 +34,7 @@ struct smk_bit_t* smk_bs_init(const unsigned char* b, const unsigned long size)
 	struct smk_bit_t* ret = NULL;
 
 	/* sanity check */
-	smk_null_check(b);
+	smk_assert(b);
 
 	/* allocate a bitstream struct */
 	smk_malloc(ret, sizeof(struct smk_bit_t));
@@ -54,7 +54,7 @@ error:
 
 /* Internal function: gets next bit.
 	No safety checking. */
-static char smk_bs_next(struct smk_bit_t* bs)
+static inline char smk_bs_next(struct smk_bit_t* bs)
 {
 	/* advance to next bit */
 	bs->bit_num ++;
@@ -66,7 +66,7 @@ static char smk_bs_next(struct smk_bit_t* bs)
 		bs->bit_num = 0;
 	}
 
-	return (((bs->bitstream[bs->byte_num]) & (0x01 << bs->bit_num)) != 0);
+	return (((bs->bitstream[bs->byte_num]) & (1 << bs->bit_num)) != 0);
 }
 
 /* Reads a bit
@@ -74,7 +74,7 @@ static char smk_bs_next(struct smk_bit_t* bs)
 char smk_bs_read_1(struct smk_bit_t* bs)
 {
 	/* sanity check */
-	smk_null_check(bs);
+	smk_assert(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (! (bs->bit_num < 7 || (bs->byte_num + 1 < bs->size)) )
@@ -97,7 +97,7 @@ short smk_bs_read_8(struct smk_bit_t* bs)
 	unsigned char ret = 0, i;
 
 	/* sanity check */
-	smk_null_check(bs);
+	smk_assert(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (! (bs->byte_num + 1 < bs->size) )
@@ -108,7 +108,7 @@ short smk_bs_read_8(struct smk_bit_t* bs)
 
 	for (i = 0; i < 8; i ++)
 	{
-		ret = ret >> 1;
+		ret >>= 1;
 		ret |= (smk_bs_next(bs) << 7);
 	}
 	return ret;

@@ -143,8 +143,7 @@ static char smk_read_file(void* buf, const size_t size, FILE* fp)
 	size_t bytesRead = fread(buf,1,size,fp);
 	if (bytesRead != size)
 	{
-		fprintf(stderr,"libsmacker::smk_read_file(buf,%lu,fp) - ERROR: Short read, %lu bytes returned (errno: %d)\n",(unsigned long)size, (unsigned long)bytesRead,errno);
-		perror ("\tError reported was");
+		fprintf(stderr, "libsmacker::smk_read_file(buf,%lu,fp) - ERROR: Short read, %lu bytes returned\n\tReason: %s\n", (unsigned long)size, (unsigned long)bytesRead, strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -170,7 +169,7 @@ static char smk_read_memory(void* buf, const unsigned long size, unsigned char**
 /* read n bytes from (source) into ret */
 #define smk_read(ret,n) \
 { \
-	if(m) \
+	if (m) \
 	{ \
 		r = (smk_read_file(ret,n,fp.file)); \
 	} \
@@ -428,7 +427,7 @@ smk smk_open_memory(const unsigned char* buffer, const unsigned long size)
 
 	union smk_read_t fp;
 
-	smk_null_check(buffer);
+	smk_assert(buffer);
 
 	/* set up the read union for Memory mode */
 	fp.ram = (unsigned char*)buffer;
@@ -450,7 +449,7 @@ smk smk_open_file(const char* filename, const unsigned char mode)
 
 	union smk_read_t fp;
 
-	smk_null_check(filename);
+	smk_assert(filename);
 
 	if (!(fp.file = fopen(filename,"rb")))
 	{
@@ -485,7 +484,7 @@ void smk_close(smk s)
 {
 	unsigned long u;
 
-	smk_null_check(s);
+	smk_assert(s);
 
 	/* free video sub-components */
 	if (s->video)
@@ -544,7 +543,7 @@ error: ;
 char smk_info_all(const smk object, unsigned long* frame, unsigned long* frame_count, double* usf)
 {
 	/* sanity check */
-	smk_null_check(object);
+	smk_assert(object);
 	if (!frame && !frame_count && !usf)
 	{
 		fputs("libsmacker::smk_info_all(object,frame,frame_count,usf) - ERROR: Request for info with all-NULL return references\n",stderr);
@@ -571,7 +570,7 @@ error:
 char smk_info_video(const smk object, unsigned long* w, unsigned long* h, unsigned char* y_scale_mode)
 {
 	/* sanity check */
-	smk_null_check(object);
+	smk_assert(object);
 	if (!w && !h && !y_scale_mode)
 	{
 		fputs("libsmacker::smk_info_all(object,w,h,y_scale_mode) - ERROR: Request for info with all-NULL return references\n",stderr);
@@ -600,7 +599,7 @@ char smk_info_audio(const smk object, unsigned char* track_mask, unsigned char c
 	unsigned char i;
 
 	/* sanity check */
-	smk_null_check(object);
+	smk_assert(object);
 
 	if (!track_mask && !channels && !bitdepth && !audio_rate)
 	{
@@ -650,8 +649,8 @@ char smk_enable_all(smk object, const unsigned char mask)
 	unsigned char i;
 
 	/* sanity check */
-	smk_null_check(object);
-	smk_null_check(object->video);
+	smk_assert(object);
+	smk_assert(object->video);
 
 	object->video->enable = (mask & 0x80);
 
@@ -672,8 +671,8 @@ error:
 char smk_enable_video(smk object, const unsigned char enable)
 {
 	/* sanity check */
-	smk_null_check(object);
-	smk_null_check(object->video);
+	smk_assert(object);
+	smk_assert(object->video);
 
 	object->video->enable = enable;
 	return 0;
@@ -685,8 +684,8 @@ error:
 char smk_enable_audio(smk object, const unsigned char track, const unsigned char enable)
 {
 	/* sanity check */
-	smk_null_check(object);
-	smk_null_check(object->audio[track]);
+	smk_assert(object);
+	smk_assert(object->audio[track]);
 
 	object->audio[track]->enable = enable;
 	return 0;
@@ -695,30 +694,30 @@ error:
 	return -1;
 }
 
-unsigned char* smk_get_palette(const smk object)
+const unsigned char* smk_get_palette(const smk object)
 {
-	smk_null_check(object);
-	smk_null_check(object->video);
+	smk_assert(object);
+	smk_assert(object->video);
 
 	return object->video->palette;
 
 error:
 	return NULL;
 }
-unsigned char* smk_get_video(const smk object)
+const unsigned char* smk_get_video(const smk object)
 {
-	smk_null_check(object);
-	smk_null_check(object->video);
+	smk_assert(object);
+	smk_assert(object->video);
 
 	return object->video->frame;
 
 error:
 	return NULL;
 }
-unsigned char* smk_get_audio(const smk object, const unsigned char t)
+const unsigned char* smk_get_audio(const smk object, const unsigned char t)
 {
-	smk_null_check(object);
-	smk_null_check(object->audio[t]);
+	smk_assert(object);
+	smk_assert(object->audio[t]);
 
 	return object->audio[t]->buffer;
 
@@ -727,8 +726,8 @@ error:
 }
 unsigned long smk_get_audio_size(const smk object, const unsigned char t)
 {
-	smk_null_check(object);
-	smk_null_check(object->audio[t]);
+	smk_assert(object);
+	smk_assert(object->audio[t]);
 
 	return object->audio[t]->buffer_size;
 
@@ -756,8 +755,8 @@ static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned
 	};
 
 	/* sanity check */
-	smk_null_check(s);
-	smk_null_check(p);
+	smk_assert(s);
+	smk_assert(p);
 
 	/* Allocate a placeholder for our palette. */
 	smk_malloc(t,768);
@@ -896,8 +895,8 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	};
 
 	/* sanity check */
-	smk_null_check(s);
-	smk_null_check(p);
+	smk_assert(s);
+	smk_assert(p);
 
 	smk_malloc(t,s->w * s->h);
 
@@ -1063,8 +1062,8 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 	struct smk_huff_t* aud_tree[4] = {NULL,NULL,NULL,NULL};
 
 	/* sanity check */
-	smk_null_check(s);
-	smk_null_check(p);
+	smk_assert(s);
+	smk_assert(p);
 
 	if (!s->compress)
 	{
@@ -1245,7 +1244,7 @@ static char smk_render(smk s)
 	unsigned char* buffer = NULL,* p,track;
 
 	/* sanity check */
-	smk_null_check(s);
+	smk_assert(s);
 
 	/* Retrieve current chunk_size for this frame. */
 	if (!(i = s->chunk_size[s->cur_frame]))
@@ -1366,7 +1365,7 @@ error:
 /* rewind to first frame and unpack */
 char smk_first(smk s)
 {
-	smk_null_check(s);
+	smk_assert(s);
 
 	s->cur_frame = 0;
 	if ( smk_render(s) < 0)
@@ -1385,7 +1384,7 @@ error:
 /* advance to next frame */
 char smk_next(smk s)
 {
-	smk_null_check(s);
+	smk_assert(s);
 
 	if (s->cur_frame + 1 < (s->f + s->ring_frame))
 	{
@@ -1424,7 +1423,7 @@ error:
 /* seek to a keyframe in an smk */
 char smk_seek_keyframe(smk s, unsigned long f)
 {
-	smk_null_check(s);
+	smk_assert(s);
 
 	/* rewind (or fast forward!) exactly to f */
 	s->cur_frame = f;
