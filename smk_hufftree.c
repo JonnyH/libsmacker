@@ -42,41 +42,7 @@ struct smk_huff_big_t
 	unsigned short cache[3];
 };
 
-/* function to recursively delete a huffman tree */
-void smk_huff_free(struct smk_huff_t* t)
-{
-	/* Sanity check: do not double-free */
-	smk_assert(t);
-
-	/* If this is not a leaf node, free child trees first */
-	if (t->b0)
-	{
-		smk_huff_free(t->b0);
-		smk_huff_free(t->u.b1);
-	}
-
-	/* Safe-delete tree node. */
-	smk_free(t);
-
-error: ;
-}
-
-/* delete a (big) huffman tree */
-void smk_huff_big_free(struct smk_huff_big_t* big)
-{
-	/* Sanity check: do not double-free */
-	smk_assert(big);
- 
-	/* free the subtree */
-	if (big->t)
-		smk_huff_free(big->t);
-
-	/* free the bigtree */
-	smk_free(big);
-
-error: ;
-};
-
+/*********************** "SMALL" HUFF-TREE FUNCTIONS ***********************/
 /* safe build with built-in error jump */
 #define smk_huff_safe_build_rec(bs,p) \
 { \
@@ -86,7 +52,6 @@ error: ;
 		goto error; \
 	} \
 }
-
 /* Recursive tree-building function. */
 static struct smk_huff_t* smk_huff_build_rec(struct smk_bit_t* bs)
 {
@@ -131,6 +96,38 @@ error:
 	return NULL;
 }
 
+/* Look up an 8-bit value from a basic huff tree.
+	Return -1 on error. */
+short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t)
+{
+	char bit;
+
+	/* sanity check */
+	smk_assert(bs);
+	smk_assert(t);
+
+	if (!t->b0)
+	{
+		/* Reached a Leaf node. Return its value. */
+		return t->u.leaf.value;
+	}
+
+	/* Read the next bit from bitstream to determine path */
+	smk_bs_safe_read_1(bs, bit);
+
+	if (bit)
+	{
+		/* get_bit returned Set, follow Right branch. */
+		return smk_huff_lookup(bs, t->u.b1);
+	}
+
+	/* follow Left branch */
+	return smk_huff_lookup(bs, t->b0);
+
+error:
+	return -1;
+}
+
 /*
 	Entry point for huff_build. Basically just checks the start/end tags
 	and calls smk_huff_build_rec recursive function.
@@ -173,38 +170,26 @@ error:
 	return NULL;
 }
 
-/* Look up an 8-bit value from a basic huff tree.
-	Return -1 on error. */
-short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t)
+/* function to recursively delete a huffman tree */
+void smk_huff_free(struct smk_huff_t* t)
 {
-	char bit;
-
-	/* sanity check */
-	smk_assert(bs);
+	/* Sanity check: do not double-free */
 	smk_assert(t);
 
-	if (!t->b0)
+	/* If this is not a leaf node, free child trees first */
+	if (t->b0)
 	{
-		/* Reached a Leaf node. Return its value. */
-		return t->u.leaf.value;
+		smk_huff_free(t->b0);
+		smk_huff_free(t->u.b1);
 	}
 
-	/* Read the next bit from bitstream to determine path */
-	smk_bs_safe_read_1(bs, bit);
+	/* Safe-delete tree node. */
+	smk_free(t);
 
-	if (bit)
-	{
-		/* get_bit returned Set, follow Right branch. */
-		return smk_huff_lookup(bs, t->u.b1);
-	}
-
-	/* follow Left branch */
-	return smk_huff_lookup(bs, t->b0);
-
-error:
-	return -1;
+error: ;
 }
 
+/*********************** "BIG" HUFF-TREE FUNCTIONS ***********************/
 /* safe bigtree build with built-in error jump */
 #define smk_huff_big_safe_build_rec(bs,cache,low8,hi8,p) \
 { \
@@ -214,7 +199,6 @@ error:
 		goto error; \
 	} \
 }
-
 /* Recursively builds a Big tree. */
 static struct smk_huff_t* smk_huff_big_build_rec(struct smk_bit_t* bs, const unsigned short cache[3], const struct smk_huff_t* low8, const struct smk_huff_t* hi8)
 {
@@ -423,3 +407,19 @@ void smk_huff_big_reset(struct smk_huff_big_t* big)
 
 error: ;
 }
+
+/* delete a (big) huffman tree */
+void smk_huff_big_free(struct smk_huff_big_t* big)
+{
+	/* Sanity check: do not double-free */
+	smk_assert(big);
+ 
+	/* free the subtree */
+	if (big->t)
+		smk_huff_free(big->t);
+
+	/* free the bigtree */
+	smk_free(big);
+
+error: ;
+};

@@ -20,10 +20,7 @@
 struct smk_huff_t;
 struct smk_huff_big_t;
 
-/* function to recursively delete a huffman tree */
-void smk_huff_free(struct smk_huff_t* t);
-void smk_huff_big_free(struct smk_huff_big_t* big);
-
+/*********************** "SMALL" HUFF-TREE FUNCTIONS ***********************/
 /* This macro interrogates return code from smk_huff_build and
 	jumps to error label if problems occur. */
 #define smk_huff_safe_build(bs,t) \
@@ -51,6 +48,10 @@ struct smk_huff_t* smk_huff_build(struct smk_bit_t* bs);
 	returns -1 on error */
 short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t);
 
+/* function to recursively delete a huffman tree */
+void smk_huff_free(struct smk_huff_t* t);
+
+/************************ "BIG" HUFF-TREE FUNCTIONS ************************/
 /* This macro interrogates return code from smk_huff_big_build and
 	jumps to error label if problems occur. */
 #define smk_huff_big_safe_build(bs,t) \
@@ -80,5 +81,8 @@ long smk_huff_big_lookup(struct smk_bit_t* bs, struct smk_huff_big_t* big);
 
 /* Reset the cache in a bigtree */
 void smk_huff_big_reset(struct smk_huff_big_t* big);
+
+/* function to recursively delete a huffman tree */
+void smk_huff_big_free(struct smk_huff_big_t* big);
 
 #endif
