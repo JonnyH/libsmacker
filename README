@@ -2,9 +2,9 @@ libsmacker
 A C library for decoding .smk Smacker Video files
 
 version 1.1
-2016-05-19
+2017-01-27
 
-(c) Greg Kennedy 2013
+(c) Greg Kennedy 2013-2017
 http://libsmacker.sourceforge.net
 ----
 
@@ -43,6 +43,7 @@ Changelog
 1.1
 * Switch to autotools-based build
 * Incorporates patches from Dalerank Slim, Gennady Trafimenkov, and Bianca van Schaik
+* Performance improvements and code cleanup / safety.
 1.0
 * Initial revision
 
