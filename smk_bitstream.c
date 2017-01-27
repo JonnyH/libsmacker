@@ -1,4 +1,4 @@
-/*
+/**
 	libsmacker - A C library for decoding .smk Smacker Video files
 	Copyright (C) 2012-2017 Greg Kennedy
 
@@ -54,7 +54,7 @@ error:
 
 /* Reads a bit
 	Returns -1 if error encountered */
-char smk_bs_read_1(struct smk_bit_t* bs)
+char _smk_bs_read_1(struct smk_bit_t* bs)
 {
 	unsigned char ret = -1;
 
@@ -64,7 +64,7 @@ char smk_bs_read_1(struct smk_bit_t* bs)
 	/* don't die when running out of bits, but signal */
 	if (bs->byte_num >= bs->size)
 	{
-		fprintf(stderr, "libsmacker::smk_bs_read_1(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
+		fprintf(stderr, "libsmacker::_smk_bs_read_1(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
 		goto error;
 	}
 
@@ -88,7 +88,7 @@ error:
 
 /* Reads a byte
 	Returns -1 if error. */
-short smk_bs_read_8(struct smk_bit_t* bs)
+short _smk_bs_read_8(struct smk_bit_t* bs)
 {
 	unsigned char ret = -1;
 
@@ -98,7 +98,7 @@ short smk_bs_read_8(struct smk_bit_t* bs)
 	/* don't die when running out of bits, but signal */
 	if (bs->byte_num + (bs->bit_num > 0) >= bs->size)
 	{
-		fprintf(stderr, "libsmacker::smk_bs_read_8(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
+		fprintf(stderr, "libsmacker::_smk_bs_read_8(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
 		goto error;
 	}
 
