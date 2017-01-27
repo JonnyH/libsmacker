@@ -31,7 +31,8 @@ void process(const char *fn)
 	char outfile[256];
 	unsigned char b[5];
 
-	unsigned int		i,j,k;
+	unsigned int		i,k;
+	int j;
 	unsigned long temp_u;
 
 	/* all and video info */
@@ -56,7 +57,7 @@ void process(const char *fn)
 	printf("--------\nsmk2avi processing %s...\n",fn);
 
 	/* open the smk file */
-	s = smk_open_file(fn,SMK_MODE_MEMORY);
+	s = smk_open_file(fn,SMK_MODE_DISK);
 	if (s == NULL) goto error;
 
 	/* get some info about the file */
@@ -264,7 +265,7 @@ printf("-> Audio header %d, %luhz, %d bits, %d channels\n",i,a_r[i],a_d[i],a_c[i
 
 			if (frame == NULL || pal == NULL) goto error;
 	
-			for (j = 0; j < h; j++)
+			for (j = h - 1; j >= 0; j--)
 			{
 				for (k = 0; k < w; k++)
 				{
@@ -291,7 +292,7 @@ printf("-> Audio header %d, %luhz, %d bits, %d channels\n",i,a_r[i],a_d[i],a_c[i
 				temp_u = total_audio_size[i];
 				lu(temp_u);
 
-				for (j = 0; j < f; j++)
+				for (j = 0; j < (int)f; j++)
 				{
 					w(audio_data[i][j],audio_size[i][j]);
 				}

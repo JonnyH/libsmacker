@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	libsmacker is a cross-platform C library which can be used for
 	decoding Smacker Video files produced by RAD Game Tools.
@@ -28,6 +28,9 @@
 
 #ifndef SMACKER_H
 #define SMACKER_H
+
+// includes - needed for FILE* here
+#include <stdio.h>
 
 /* forward-declaration for an struct */
 typedef struct smk_t* smk;
@@ -65,6 +68,8 @@ extern "C" {
 /* OPEN OPERATIONS */
 /* open an smk (from a file) */
 smk smk_open_file(const char* filename, unsigned char mode);
+/* open an smk (from a file pointer) */
+smk smk_open_filepointer(FILE* file, unsigned char mode);
 /* read an smk (from a memory buffer) */
 smk smk_open_memory(const unsigned char* buffer, unsigned long size);
 

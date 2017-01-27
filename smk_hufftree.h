@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	See smacker.h for more information.
 
@@ -21,7 +21,7 @@ struct smk_huff_t;
 struct smk_huff_big_t;
 
 /*********************** "SMALL" HUFF-TREE FUNCTIONS ***********************/
-/* This macro interrogates return code from smk_huff_build and
+/* This macro checks return code from smk_huff_build and
 	jumps to error label if problems occur. */
 #define smk_huff_safe_build(bs,t) \
 { \
@@ -34,7 +34,7 @@ struct smk_huff_big_t;
 /* Build a tree from a bitstream */
 struct smk_huff_t* smk_huff_build(struct smk_bit_t* bs);
 
-/* This macro interrogates return code from smk_huff_lookup and
+/* This macro checks return code from smk_huff_lookup and
 	jumps to error label if problems occur. */
 #define smk_huff_safe_lookup(bs,t,s) \
 { \
@@ -52,7 +52,7 @@ short smk_huff_lookup(struct smk_bit_t* bs, const struct smk_huff_t* t);
 void smk_huff_free(struct smk_huff_t* t);
 
 /************************ "BIG" HUFF-TREE FUNCTIONS ************************/
-/* This macro interrogates return code from smk_huff_big_build and
+/* This macro checks return code from smk_huff_big_build and
 	jumps to error label if problems occur. */
 #define smk_huff_big_safe_build(bs,t) \
 { \
@@ -65,7 +65,7 @@ void smk_huff_free(struct smk_huff_t* t);
 /* Build a bigtree from a bitstream */
 struct smk_huff_big_t* smk_huff_big_build(struct smk_bit_t* bs);
 
-/* This macro interrogates return code from smk_huff_big_lookup and
+/* This macro checks return code from smk_huff_big_lookup and
 	jumps to error label if problems occur. */
 #define smk_huff_big_safe_lookup(bs,t,s) \
 { \

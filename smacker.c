@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	See smacker.h for more information.
 
@@ -19,9 +19,9 @@
 #include "smk_hufftree.h"
 
 /* fp error handling */
-#include <errno.h>
+//#include <errno.h>
 /* memset */
-#include <string.h>
+//#include <string.h>
 
 /* GLOBALS */
 /* tree processing order */
@@ -37,13 +37,13 @@ struct smk_t
 	/* file mode: see flags, smacker.h */
 	unsigned char	mode;
 
-	/* microsec per frame, total frames
-		stored as a double to handle scaling (large positive millisec / frame values may
-		overflow a ul */
+	/* microsec per frame - stored as a double to handle scaling
+		(large positive millisec / frame values may overflow a ul) */
 	double	usf;
 
+	/* total frames */
 	unsigned long	f;
-	/* does file contain a ring frame? */
+	/* does file have a ring frame? (in other words, does file loop?) */
 	unsigned char	ring_frame;
 
 	/* Index of current frame */
@@ -65,8 +65,7 @@ struct smk_t
 		unsigned char** chunk_data;
 	} source;
 
-	/* shared
-		array of "chunk sizes"*/
+	/* shared array of "chunk sizes"*/
 	unsigned long* chunk_size;
 
 	/* Holds per-frame flags (i.e. 'keyframe') */
@@ -74,7 +73,7 @@ struct smk_t
 	/* Holds per-frame type mask (e.g. 'audio track 3, 2, and palette swap') */
 	unsigned char* frame_type;
 
-	/* pointers to video and audio structures */
+	/* video and audio structures */
 	/* Video data type: enable/disable decode switch,
 		video info and flags,
 		pointer to last-decoded-palette */
@@ -100,14 +99,17 @@ struct smk_t
 		struct smk_huff_big_t* tree[4];
 
 		/* Palette data type: pointer to last-decoded-palette */
-		unsigned char* palette;
+		unsigned char palette[256][3];
 		/* Last-unpacked frame */
 		unsigned char* frame;
-	}* video;
+	} video;
 
 	/* audio structure */
 	struct smk_audio_t
 	{
+		/* set if track exists in file */
+		unsigned char exists;
+
 		/* enable/disable switch (per track) */
 		unsigned char enable;
 
@@ -115,7 +117,7 @@ struct smk_t
 		unsigned char	channels;
 		unsigned char	bitdepth;
 		unsigned long	rate;
-		/* long	max_buffer; */
+		long	max_buffer;
 
 		/* compression type
 			0: raw PCM
@@ -126,7 +128,7 @@ struct smk_t
 		/* pointer to last-decoded-audio-buffer */
 		void* buffer;
 		unsigned long	buffer_size;
-	}* audio[7];
+	} audio[7];
 };
 
 union smk_read_t
@@ -218,7 +220,7 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	/* safe malloc the structure */
 	smk_malloc(s,sizeof (struct smk_t));
 	/* safe malloc the structure components */
-	smk_malloc(s->video,sizeof(struct smk_video_t));
+	//smk_malloc(s->video,sizeof(struct smk_video_t));
 
 	/* Check for a valid signature */
 	smk_read(buf,3);
@@ -229,25 +231,21 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	}
 
 	/* Read .smk file version */
-	smk_read(&s->video->v,1);
-	if (s->video->v != '2' && s->video->v != '4')
+	smk_read(&s->video.v,1);
+	if (s->video.v != '2' && s->video.v != '4')
 	{
-		fprintf(stderr,"libsmacker::smk_open_generic - Warning: invalid SMK version %c (expected: 2 or 4)\n",s->video->v);
+		fprintf(stderr,"libsmacker::smk_open_generic - Warning: invalid SMK version %c (expected: 2 or 4)\n",s->video.v);
 		/* take a guess */
-		if (s->video->v < '4')
-		{
-			s->video->v = '2';
-		}
+		if (s->video.v < '4')
+			s->video.v = '2';
 		else
-		{
-			s->video->v = '4';
-		}
-		fprintf(stderr,"\tProcessing will continue as type %c\n",s->video->v);
+			s->video.v = '4';
+		fprintf(stderr,"\tProcessing will continue as type %c\n",s->video.v);
 	}
 
 	/* width, height, total num frames */
-	smk_read_ul(s->video->w);
-	smk_read_ul(s->video->h);
+	smk_read_ul(s->video.w);
+	smk_read_ul(s->video.h);
 
 	smk_read_ul(s->f);
 
@@ -281,23 +279,22 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	}
 	if (temp_u & 0x02)
 	{
-		s->video->y_scale_mode = SMK_FLAG_Y_DOUBLE;
+		s->video.y_scale_mode = SMK_FLAG_Y_DOUBLE;
 	}
 	if (temp_u & 0x04)
 	{
-		if (s->video->y_scale_mode == SMK_FLAG_Y_DOUBLE)
+		if (s->video.y_scale_mode == SMK_FLAG_Y_DOUBLE)
 		{
 			fputs("libsmacker::smk_open_generic - Warning: SMK file specifies both Y-Double AND Y-Interlace.\n",stderr);
 		}
-		s->video->y_scale_mode = SMK_FLAG_Y_INTERLACE;
+		s->video.y_scale_mode = SMK_FLAG_Y_INTERLACE;
 	}
 
-	/* Max buffer size for each audio track - we don't use
-		but calling application might. */
+	/* Max buffer size for each audio track - used to pre-allocate buffers */
+	//unsigned long max_buffer[7];
 	for (temp_l = 0; temp_l < 7; temp_l ++)
 	{
-/*		smk_read_ul(s->audio[temp_u]->max_buffer); */
-		smk_read_ul(temp_u);
+		smk_read_ul(s->audio[temp_l].max_buffer);
 	}
 
 	/* Read size of "hufftree chunk" - save for later. */
@@ -307,7 +304,7 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 		but calling application might. */
 	for (temp_l = 0; temp_l < 4; temp_l ++)
 	{
-/*		smk_read_ul(s->video->tree_size[temp_u]); */
+/*		smk_read_ul(s->video.tree_size[temp_u]); */
 		smk_read_ul(temp_u);
 	}
 
@@ -318,20 +315,25 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 		if (temp_u & 0x40000000)
 		{
 			/* Audio track specifies "exists" flag, malloc structure and copy components. */
-			smk_malloc(s->audio[temp_l],sizeof(struct smk_audio_t));
+			s->audio[temp_l].exists = 1;
+			//smk_malloc(s->audio[temp_l],sizeof(struct smk_audio_t));
+
+			/* and for all audio tracks */
+			smk_malloc(s->audio[temp_l].buffer, s->audio[temp_l].max_buffer);
+
 			if (temp_u & 0x80000000)
 			{
-				s->audio[temp_l]->compress = 1;
+				s->audio[temp_l].compress = 1;
 			}
-			s->audio[temp_l]->bitdepth = ((temp_u & 0x20000000) ? 16 : 8);
-			s->audio[temp_l]->channels = ((temp_u & 0x10000000) ? 2 : 1);
+			s->audio[temp_l].bitdepth = ((temp_u & 0x20000000) ? 16 : 8);
+			s->audio[temp_l].channels = ((temp_u & 0x10000000) ? 2 : 1);
 			if (temp_u & 0x0c000000)
 			{
 				fprintf(stderr,"libsmacker::smk_open_generic - Warning: audio track %ld is compressed with Bink (perceptual) Audio Codec: this is currently unsupported by libsmacker\n",temp_l);
-				s->audio[temp_l]->compress = 2;
+				s->audio[temp_l].compress = 2;
 			}
 			/* Bits 25 & 24 are unused. */
-			s->audio[temp_l]->rate = (temp_u & 0x00FFFFFF);
+			s->audio[temp_l].rate = (temp_u & 0x00FFFFFF);
 		}
 	}
 
@@ -373,12 +375,18 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	/* create some tables */
 	for (temp_u = 0; temp_u < 4; temp_u ++)
 	{
-		smk_huff_big_safe_build(bs,s->video->tree[temp_u]);
+		smk_huff_big_safe_build(bs,s->video.tree[temp_u]);
 	}
 
 	/* clean up */
 	smk_free(bs);
 	smk_free(hufftree_chunk);
+
+	/* Go ahead and malloc storage for other blocks */
+	/* Allocate a placeholder for our palette. */
+	/* smk_malloc(s->video.palette,768); */
+	/* and for a video frame */
+	smk_malloc(s->video.frame,s->video.w * s->video.h);
 
 	/* final processing: depending on ProcessMode, handle what to do with rest of file data */
 	s->mode = process_mode;
@@ -443,24 +451,19 @@ error:
 }
 
 /* open an smk (from a file) */
-smk smk_open_file(const char* filename, const unsigned char mode)
+smk smk_open_filepointer(FILE* file, const unsigned char mode)
 {
 	smk s = NULL;
-
 	union smk_read_t fp;
 
-	smk_assert(filename);
+	smk_assert(file);
 
-	if (!(fp.file = fopen(filename,"rb")))
-	{
-		fprintf(stderr,"libsmacker::smk_open_file(%s,%u) - ERROR: could not open file (errno: %d)\n",filename,mode,errno);
-		perror ("\tError reported was");
-		goto error;
-	}
+	// Copy file ptr to internal union
+	fp.file = file;
 
 	if (!(s = smk_open_generic(1,fp,0,mode)))
 	{
-		fprintf(stderr,"libsmacker::smk_open_file(%s,%u) - ERROR: Fatal error in smk_open_generic, returning NULL.\n",filename,mode);
+		fprintf(stderr,"libsmacker::smk_open_filepointer(file,%u) - ERROR: Fatal error in smk_open_generic, returning NULL.\n",mode);
 		fclose(fp.file);
 		goto error;
 	}
@@ -479,6 +482,28 @@ error:
 	return s;
 }
 
+/* open an smk (from a file) */
+smk smk_open_file(const char* filename, const unsigned char mode)
+{
+	FILE* fp;
+
+	smk_assert(filename);
+
+	if (!(fp = fopen(filename,"rb")))
+	{
+		fprintf(stderr,"libsmacker::smk_open_file(%s,%u) - ERROR: could not open file (errno: %d)\n",filename,mode,errno);
+		perror ("\tError reported was");
+		goto error;
+	}
+
+	// kick processing to smk_open_filepointer
+	return smk_open_filepointer(fp,mode);
+
+	/* fall through, return s or null */
+error:
+	return NULL;
+}
+
 /* close out an smk file and clean up memory */
 void smk_close(smk s)
 {
@@ -487,25 +512,19 @@ void smk_close(smk s)
 	smk_assert(s);
 
 	/* free video sub-components */
-	if (s->video)
 	{
 		for (u = 0; u < 4; u ++)
 		{
-			if (s->video->tree[u]) smk_huff_big_free(s->video->tree[u]);
+			if (s->video.tree[u]) smk_huff_big_free(s->video.tree[u]);
 		}
-		smk_free(s->video->palette);
-		smk_free(s->video->frame);
-		smk_free(s->video);
+		//smk_free(s->video.palette);
+		smk_free(s->video.frame);
 	}
 
 	/* free audio sub-components */
 	for (u=0; u<7; u++)
 	{
-		if (s->audio[u])
-		{
-			smk_free(s->audio[u]->buffer);
-			smk_free(s->audio[u]);
-		}
+		smk_free(s->audio[u].buffer);
 	}
 
 	smk_free(s->keyframe);
@@ -544,23 +563,19 @@ char smk_info_all(const smk object, unsigned long* frame, unsigned long* frame_c
 {
 	/* sanity check */
 	smk_assert(object);
-	if (!frame && !frame_count && !usf)
-	{
+	if (!frame && !frame_count && !usf) {
 		fputs("libsmacker::smk_info_all(object,frame,frame_count,usf) - ERROR: Request for info with all-NULL return references\n",stderr);
 		goto error;
 	}
 	if (frame)
-	{
 		*frame = (object->cur_frame % object->f);
-	}
+
 	if (frame_count)
-	{
 		*frame_count = object->f;
-	}
+
 	if (usf)
-	{
 		*usf = object->usf;
-	}
+
 	return 0;
 
 error:
@@ -576,18 +591,16 @@ char smk_info_video(const smk object, unsigned long* w, unsigned long* h, unsign
 		fputs("libsmacker::smk_info_all(object,w,h,y_scale_mode) - ERROR: Request for info with all-NULL return references\n",stderr);
 		return -1;
 	}
+
 	if (w)
-	{
-		*w = object->video->w;
-	}
+		*w = object->video.w;
+
 	if (h)
-	{
-		*h = object->video->h;
-	}
+		*h = object->video.h;
+
 	if (y_scale_mode)
-	{
-		*y_scale_mode = object->video->y_scale_mode;
-	}
+		*y_scale_mode = object->video.y_scale_mode;
+
 	return 0;
 
 error:
@@ -608,33 +621,33 @@ char smk_info_audio(const smk object, unsigned char* track_mask, unsigned char c
 	}
 	if (track_mask)
 	{
-		*track_mask = ( (object->audio[0] != NULL) |
-			 ( (object->audio[1] != NULL) << 1 ) |
-			 ( (object->audio[2] != NULL) << 2 ) |
-			 ( (object->audio[3] != NULL) << 3 ) |
-			 ( (object->audio[4] != NULL) << 4 ) |
-			 ( (object->audio[5] != NULL) << 5 ) |
-			 ( (object->audio[6] != NULL) << 6 ) );
+		*track_mask = ( (object->audio[0].exists) |
+			 ( (object->audio[1].exists) << 1 ) |
+			 ( (object->audio[2].exists) << 2 ) |
+			 ( (object->audio[3].exists) << 3 ) |
+			 ( (object->audio[4].exists) << 4 ) |
+			 ( (object->audio[5].exists) << 5 ) |
+			 ( (object->audio[6].exists) << 6 ) );
 	}
 	if (channels)
 	{
 		for (i = 0; i < 7; i ++)
 		{
-			channels[i] = ( object->audio[i] ? object->audio[i]->channels : 0);
+			channels[i] = object->audio[i].channels;
 		}
 	}
 	if (bitdepth)
 	{
 		for (i = 0; i < 7; i ++)
 		{
-			bitdepth[i] = ( object->audio[i] ? object->audio[i]->bitdepth : 0);
+			bitdepth[i] = object->audio[i].bitdepth;
 		}
 	}
 	if (audio_rate)
 	{
 		for (i = 0; i < 7; i ++)
 		{
-			audio_rate[i] = ( object->audio[i] ? object->audio[i]->rate : 0);
+			audio_rate[i] = object->audio[i].rate;
 		}
 	}
 	return 0;
@@ -650,15 +663,15 @@ char smk_enable_all(smk object, const unsigned char mask)
 
 	/* sanity check */
 	smk_assert(object);
-	smk_assert(object->video);
 
-	object->video->enable = (mask & 0x80);
+	// set video-enable
+	object->video.enable = (mask & 0x80);
 
 	for (i = 0; i < 7; i ++)
 	{
-		if (object->audio[i])
+		if (object->audio[i].exists)
 		{
-			object->audio[i]->enable = (mask & (0x01 << i));
+			object->audio[i].enable = (mask & (1 << i));
 		}
 	}
 
@@ -672,9 +685,8 @@ char smk_enable_video(smk object, const unsigned char enable)
 {
 	/* sanity check */
 	smk_assert(object);
-	smk_assert(object->video);
 
-	object->video->enable = enable;
+	object->video.enable = enable;
 	return 0;
 
 error:
@@ -685,9 +697,8 @@ char smk_enable_audio(smk object, const unsigned char track, const unsigned char
 {
 	/* sanity check */
 	smk_assert(object);
-	smk_assert(object->audio[track]);
 
-	object->audio[track]->enable = enable;
+	object->audio[track].enable = enable;
 	return 0;
 
 error:
@@ -697,9 +708,8 @@ error:
 const unsigned char* smk_get_palette(const smk object)
 {
 	smk_assert(object);
-	smk_assert(object->video);
 
-	return object->video->palette;
+	return (unsigned char*)object->video.palette;
 
 error:
 	return NULL;
@@ -707,9 +717,8 @@ error:
 const unsigned char* smk_get_video(const smk object)
 {
 	smk_assert(object);
-	smk_assert(object->video);
 
-	return object->video->frame;
+	return object->video.frame;
 
 error:
 	return NULL;
@@ -717,9 +726,8 @@ error:
 const unsigned char* smk_get_audio(const smk object, const unsigned char t)
 {
 	smk_assert(object);
-	smk_assert(object->audio[t]);
 
-	return object->audio[t]->buffer;
+	return object->audio[t].buffer;
 
 error:
 	return NULL;
@@ -727,9 +735,8 @@ error:
 unsigned long smk_get_audio_size(const smk object, const unsigned char t)
 {
 	smk_assert(object);
-	smk_assert(object->audio[t]);
 
-	return object->audio[t]->buffer_size;
+	return object->audio[t].buffer_size;
 
 error:
 	return 0;
@@ -738,10 +745,13 @@ error:
 /* Decompresses a palette-frame. */
 static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned long size)
 {
-	unsigned short i,j,k;
-	unsigned char* t = NULL;
+	/* Index into palette */
+	unsigned short i = 0;
 
-	/* Smacker palette map */
+	/* Helper variables */
+	unsigned short count, src;
+
+	/* Smacker palette map: smk colors are 6-bit, this table expands them to 8. */
 	const unsigned char palmap[64] =
 	{
 		0x00, 0x04, 0x08, 0x0C, 0x10, 0x14, 0x18, 0x1C,
@@ -758,44 +768,31 @@ static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned
 	smk_assert(s);
 	smk_assert(p);
 
-	/* Allocate a placeholder for our palette. */
-	smk_malloc(t,768);
-
-	i = 0; /* index into NEW palette */
-	j = 0; /* Index into OLD palette */
-
-	while ( (i < 768) && (size > 0) ) /* looping index into NEW palette */
+	/* Loop until palette is complete, or we are out of blocks to process */
+	while ( (i < 256) && (size > 0) )
 	{
 		if ((*p) & 0x80)
 		{
-			/* Copy (c + 1) color entries of the previous palette
-				to the next entries of the new palette. */
-			k = (((*p) & 0x7F) + 1) * 3;
+			/* 0x80: Skip block
+				(preserve C+1 palette entries from previous palette) */
+			count = ((*p) & 0x7F) + 1;
 			p ++; size --;
 
 			/* check for overflow condition */
-			if (i + k > 768)
+			if (i + count > 256)
 			{
-				fprintf(stderr,"libsmacker::palette_render(s,p,size) - ERROR: overflow, 0x80 attempt to copy %d bytes from %d\n",k,i);
+				fprintf(stderr,"libsmacker::palette_render(s,p,size) - ERROR: overflow, 0x80 attempt to skip %d entries from %d\n",count,i);
 				goto error;
 			}
 
-			/* if prev palette exists, copy... else memset black */
-			if (s->palette)
-			{
-				memcpy(&t[i],&s->palette[i],k);
-			}
-			/* smkmalloc already set t to 0 */
-			/* else
-			{
-				memset(&t[i],0,k);
-			} */
-			i += k;
+			/* finally: advance the index. */
+			i += count;
 		}
 		else if ((*p) & 0x40)
 		{
-			/* Copy (c + 1) color entries of the previous palette,
-				starting from entry (s)
+			/* 0x40: Color-shift block
+				Downshift (c + 1) color entries of the previous palette,
+				starting from entry (s),
 				to the next entries of the new palette. */
 			if (size < 2)
 			{
@@ -804,71 +801,67 @@ static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned
 			}
 
 			/* pick "count" items to copy */
-			k = (((*p) & 0x3F) + 1) * 3;	/* count */
+			count = ((*p) & 0x3F) + 1;
 			p ++; size --;
 
 			/* start offset of old palette */
-			j = (*p) * 3;
+			src = *p;
 			p ++; size --;
 
-			if (j + k > 768 || i + k > 768)
+			/* overflow: see if we write/read beyond 256colors */
+			if (i + count > 256 || src + count > 256) 
 			{
-				fprintf(stderr,"libsmacker::palette_render(s,p,size) - ERROR: overflow, 0x40 attempt to copy %d bytes from %d to %d\n",k,j,i);
+				fprintf(stderr,"libsmacker::palette_render(s,p,size) - ERROR: overflow, 0x40 attempt to copy %d entries from %d to %d\n",count,src,i);
 				goto error;
 			}
 
-			if (s->palette)
-			{
-				memcpy(&t[i],&s->palette[j],k);
-			}
-			/* else
-			{
-				memset(&t[i],0,k);
-			} */
-			i += k;
-			j += k;
+			/* OK!  Copy the color-palette entries. */
+			memcpy(&s->palette[i][0],&s->palette[src][0],count * 3);
+
+			i += count;
 		}
 		else
 		{
+			/* 0x00: Set Color block
+				Direct-set the next 3 bytes for palette index */
 			if (size < 3)
 			{
-				fprintf(stderr,"libsmacker::palette_render - ERROR: 0x3F ran out of bytes for copy, size=%lu\n",size);
+				fprintf(stderr,"libsmacker::palette_render - ERROR: 0x3F ran out of bytes for copy, size=%lu\n", size);
 				goto error;
 			}
-			t[i++] = palmap[(*p) & 0x3F];
-			p++; size --;
-			/* To be extremely correct we should blow up if (*p) exceeds 0x3F, but
-				I can't be bothered, so just mask it */
-			t[i++] = palmap[(*p) & 0x3F];
-			p++; size --;
-			t[i++] = palmap[(*p) & 0x3F];
-			p++; size --;
+
+			for (count = 0; count < 3; count ++)
+			{
+				if (*p > 0x3F)
+				{
+					fprintf(stderr,"libsmacker::palette_render - ERROR: palette index exceeds 0x3F (entry [%u][%u])\n", i, count);
+					goto error;
+				}
+				s->palette[i][count] = palmap[*p];
+				p++; size --;
+			}
+			i ++;
 		}
 	}
 
-	if (i < 768)
+	if (i < 256)
 	{
 		fprintf(stderr,"libsmacker::palette_render - ERROR: did not completely fill palette (idx=%u)\n",i);
 		goto error;
 	}
 
-	/* free old palette frame if one exists */
-	smk_free (s->palette);
-	s->palette = t;
-
 	return 0;
 
 error:
-	/* Free old palette, set to current, return -1
+	/* Error, return -1
 		The new palette probably has errors but is preferrable to a black screen */
-	smk_free (s->palette);
-	s->palette = t;
 	return -1;
 }
 
 static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned int size)
 {
-	unsigned char* t = NULL,s1,s2;
+	unsigned char* t = s->frame;
+	unsigned char s1,s2;
 	unsigned short temp;
 	unsigned long i,j,k, row, col,skip;
 
@@ -897,8 +890,6 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	/* sanity check */
 	smk_assert(s);
 	smk_assert(p);
-
-	smk_malloc(t,s->w * s->h);
 
 	row = 0;
 	col = 0;
@@ -977,6 +968,7 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 					}
 					break;
 				case 2: /* VOID BLOCK */
+					/* break;
 					if (s->frame)
 					{
 						memcpy(&t[skip], &s->frame[skip], 4);
@@ -986,7 +978,7 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 						memcpy(&t[skip], &s->frame[skip], 4);
 						skip += s->w;
 						memcpy(&t[skip], &s->frame[skip], 4);
-					}
+					} */
 					break;
 				case 3: /* SOLID BLOCK */
 					memset(&t[skip],typedata,4);
@@ -1036,15 +1028,11 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	}
 
 	smk_free(bs);
-	smk_free (s->frame);
-	s->frame = t;
 
 	return 0;
 
 error:
 	smk_free(bs);
-	smk_free (s->frame);
-	s->frame = t;
 	return -1;
 }
 
@@ -1052,7 +1040,7 @@ error:
 static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned long size)
 {
 	unsigned int j,k;
-	unsigned char* t = NULL;
+	unsigned char* t = s->buffer;
 	struct smk_bit_t* bs = NULL;
 
 	char bit;
@@ -1069,7 +1057,7 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 	{
 		/* Raw PCM data, update buffer size and malloc */
 		s->buffer_size = size;
-		smk_malloc(t,s->buffer_size);
+		//smk_malloc(t,s->buffer_size);
 
 		memcpy(t,p,size);
 	}
@@ -1092,7 +1080,7 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		size -= 4;
 
 		/* malloc a buffer to hold unpacked audio */
-		smk_malloc(t,s->buffer_size);
+		//smk_malloc(t,s->buffer_size);
 
 		/* Compressed audio: must unpack here */
 		/*  Set up a bitstream */
@@ -1214,8 +1202,8 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		smk_free(bs);
 	}
 
-	smk_free(s->buffer);
-	s->buffer = t;
+	//smk_free(s->buffer);
+	//s->buffer = t;
 
 	return 0;
 
@@ -1230,8 +1218,8 @@ error:
 	}
 
 	smk_free(bs);
-	smk_free(s->buffer);
-	s->buffer = t;
+	//smk_free(s->buffer);
+	//s->buffer = t;
 
 	return -1;
 }
@@ -1301,9 +1289,9 @@ static char smk_render(smk s)
 		size = 4 * (*p);
 
 		/* If video rendering enabled, kick this off for decode. */
-		if (s->video->enable)
+		if (s->video.enable)
 		{
-			smk_render_palette(s->video,p + 1,size - 1);
+			smk_render_palette(&(s->video),p + 1,size - 1);
 		}
 		p += size;
 		i -= size;
@@ -1329,9 +1317,9 @@ static char smk_render(smk s)
 					((unsigned int) p[0]));
 
 			/* If audio rendering enabled, kick this off for decode. */
-			if (s->audio[track] != NULL && s->audio[track]->enable)
+			if (s->audio[track].enable)
 			{
-				smk_render_audio(s->audio[track],p + 4,size - 4);
+				smk_render_audio(&s->audio[track],p + 4,size - 4);
 			}
 			p += size;
 			i -= size;
@@ -1339,9 +1327,9 @@ static char smk_render(smk s)
 	}
 
 	/* Unpack video chunk */
-	if (s->video->enable)
+	if (s->video.enable)
 	{
-		smk_render_video(s->video, p,i);
+		smk_render_video(&(s->video), p,i);
 	}
 
 	if (s->mode == SMK_MODE_DISK)
@@ -1435,7 +1423,7 @@ char smk_seek_keyframe(smk s, unsigned long f)
 	}
 
 	/* render the frame: we're ready */
-	if ( smk_render(s) < 0)
+	if (smk_render(s) < 0)
 	{
 		fprintf(stderr,"libsmacker::smk_seek_keyframe(s,%lu) - Warning: frame %lu: smk_render returned errors.\n",f,s->cur_frame);
 		goto error;

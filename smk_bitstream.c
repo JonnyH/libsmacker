@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	See smacker.h for more information.
 
@@ -21,7 +21,7 @@
 */
 struct smk_bit_t
 {
-	const unsigned char* bitstream;
+	const unsigned char* buffer;
 	unsigned long size;
 
 	unsigned long byte_num;
@@ -40,22 +40,37 @@ struct smk_bit_t* smk_bs_init(const unsigned char* b, const unsigned long size)
 	smk_malloc(ret, sizeof(struct smk_bit_t));
 
 	/* set up the pointer to bitstream, and the size counter */
-	ret->bitstream = b;
+	ret->buffer = b;
 	ret->size = size;
 
-	/* point to initial byte */
-	ret->byte_num = -1;
-	ret->bit_num = 7;
+	/* point to initial byte: note, smk_malloc already sets these to 0 */
+	/* ret->byte_num = 0;
+	ret->bit_num = 0; */
 
 	/* return ret or NULL if error : ) */
 error:
 	return ret;
 }
 
-/* Internal function: gets next bit.
-	No safety checking. */
-static inline char smk_bs_next(struct smk_bit_t* bs)
+/* Reads a bit
+	Returns -1 if error encountered */
+char smk_bs_read_1(struct smk_bit_t* bs)
 {
+	unsigned char ret = -1;
+
+	/* sanity check */
+	smk_assert(bs);
+
+	/* don't die when running out of bits, but signal */
+	if (bs->byte_num >= bs->size)
+	{
+		fprintf(stderr, "libsmacker::smk_bs_read_1(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
+		goto error;
+	}
+
+	/* get next bit and return */
+	ret = (((bs->buffer[bs->byte_num]) & (1 << bs->bit_num)) != 0);
+
 	/* advance to next bit */
 	bs->bit_num ++;
 
@@ -66,61 +81,39 @@ static inline char smk_bs_next(struct smk_bit_t* bs)
 		bs->bit_num = 0;
 	}
 
-	return (((bs->bitstream[bs->byte_num]) & (1 << bs->bit_num)) != 0);
-}
-
-/* Reads a bit
-	Returns -1 if error encountered */
-char smk_bs_read_1(struct smk_bit_t* bs)
-{
-	/* sanity check */
-	smk_assert(bs);
-
-	/* don't die when running out of bits, but signal */
-	if (! (bs->bit_num < 7 || (bs->byte_num + 1 < bs->size)) )
-	{
-		fputs("libsmacker::smk_bs_read_1(bs) - ERROR: bitstream exhausted.\n", stderr);
-		goto error;
-	}
-
-	/* get next bit and return */
-	return smk_bs_next(bs);
-
+	/* return ret, or (default) -1 if error */
 error:
-	return -1;
+	return ret;
 }
 
 /* Reads a byte
 	Returns -1 if error. */
 short smk_bs_read_8(struct smk_bit_t* bs)
 {
-	unsigned char ret = 0, i;
+	unsigned char ret = -1;
 
 	/* sanity check */
 	smk_assert(bs);
 
 	/* don't die when running out of bits, but signal */
-	if (! (bs->byte_num + 1 < bs->size) )
+	if (bs->byte_num + (bs->bit_num > 0) >= bs->size)
 	{
-		fputs("libsmacker::smk_bs_read_8(bs) - ERROR: bitstream exhausted.\n", stderr);
+		fprintf(stderr, "libsmacker::smk_bs_read_8(bs): ERROR: bitstream (length=%lu) exhausted.\n", bs->size);
 		goto error;
 	}
 
-	for (i = 0; i < 8; i ++)
+	if (bs->bit_num)
 	{
-		ret >>= 1;
-		ret |= (smk_bs_next(bs) << 7);
+		/* unaligned read */
+		ret = bs->buffer[bs->byte_num] >> bs->bit_num;
+		bs->byte_num ++;
+		ret |= (bs->buffer[bs->byte_num] << (8 - bs->bit_num));
+	} else {
+		/* aligned read */
+		ret = bs->buffer[bs->byte_num ++];
 	}
-	return ret;
 
+	/* return ret, or (default) -1 if error */
 error:
-	return -1;
+	return ret;
 }
-
-/* aligns struct to start of next byte */
-/*
-void smk_bs_align(struct smk_bit_t* bs)
-{
-	bs->bit_num = 7;
-}
-*/

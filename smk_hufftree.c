@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	See smacker.h for more information.
 

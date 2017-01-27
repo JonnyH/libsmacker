@@ -1,6 +1,6 @@
 /*
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2013 Greg Kennedy
+	Copyright (C) 2012-2017 Greg Kennedy
 
 	See smacker.h for more information.
 
@@ -19,11 +19,7 @@ struct smk_bit_t;
 /* Initialize a bitstream */
 struct smk_bit_t* smk_bs_init(const unsigned char* b, unsigned long size);
 
-/* Align the bitstream to next-byte boundary. */
-/* As it turns out, this isn't needed. */
-/* void smk_bs_align(struct smk_bit_t *); */
-
-/* This macro interrogates return code from bs_read_1 and
+/* This macro checks return code from smk_bs_read_1 and
 	jumps to error label if problems occur. */
 #define smk_bs_safe_read_1(t,uc) \
 { \
@@ -37,6 +33,8 @@ struct smk_bit_t* smk_bs_init(const unsigned char* b, unsigned long size);
 	Returns -1 on error. */
 char smk_bs_read_1(struct smk_bit_t* bs);
 
+/* This macro checks return code from smk_bs_read_8 and
+	jumps to error label if problems occur. */
 #define smk_bs_safe_read_8(t,s) \
 { \
 	if ((short)(s = smk_bs_read_8(t)) < 0) \
