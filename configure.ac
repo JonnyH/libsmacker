@@ -1,4 +1,4 @@
-AC_INIT([libsmacker], [1.1], [kennedy.greg@gmail.com])
+AC_INIT([libsmacker], [1.1.1], [kennedy.greg@gmail.com])
 
 AC_CONFIG_MACRO_DIRS([m4])
 
