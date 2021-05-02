@@ -34,7 +34,7 @@ struct smk_bit_t* smk_bs_init(const unsigned char* b, const unsigned long size)
 	struct smk_bit_t* ret = NULL;
 
 	/* sanity check */
-	smk_assert(b);
+	assert(b);
 
 	/* allocate a bitstream struct */
 	smk_malloc(ret, sizeof(struct smk_bit_t));
@@ -59,7 +59,7 @@ char _smk_bs_read_1(struct smk_bit_t* bs)
 	unsigned char ret = -1;
 
 	/* sanity check */
-	smk_assert(bs);
+	assert(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (bs->byte_num >= bs->size)
@@ -93,7 +93,7 @@ short _smk_bs_read_8(struct smk_bit_t* bs)
 	unsigned char ret = -1;
 
 	/* sanity check */
-	smk_assert(bs);
+	assert(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (bs->byte_num + (bs->bit_num > 0) >= bs->size)

@@ -1,5 +1,7 @@
 ACLOCAL_AMFLAGS = -I m4
 
+AM_CPPFLAGS = -Wall -Wextra
+
 lib_LTLIBRARIES = libsmacker.la
 libsmacker_la_SOURCES = smacker.c \
 			smk_bitstream.c \

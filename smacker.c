@@ -511,7 +511,10 @@ void smk_close(smk s)
 	/* free audio sub-components */
 	for (u=0; u<7; u++)
 	{
-		smk_free(s->audio[u].buffer);
+		if (s->audio[u].buffer)
+		{
+			smk_free(s->audio[u].buffer);
+		}
 	}
 
 	smk_free(s->keyframe);
@@ -756,7 +759,7 @@ static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned
 	smk_assert(s);
 	smk_assert(p);
 
-	// Copy palette to old palette
+	/* Copy palette to old palette */
 	memcpy(oldPalette, s->palette, 256 * 3);
 
 	/* Loop until palette is complete, or we are out of bytes to process */
