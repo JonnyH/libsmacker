@@ -62,20 +62,22 @@ void smk_bs_free(struct smk_bit_t * const bs)
 
 /* Reads a bit
 	Returns -1 if error encountered */
-char _smk_bs_read_1(struct smk_bit_t* const bs)
+char smk_bs_read_1(struct smk_bit_t* const bs)
 {
+	char ret;
+
 	/* sanity check */
 	assert(bs);
 
 	/* don't die when running out of bits, but signal */
 	if (bs->buffer >= bs->end)
 	{
-		fputs("libsmacker::_smk_bs_read_1(bs): ERROR: bitstream exhausted.\n", stderr);
+		fputs("libsmacker::smk_bs_read_1(bs): ERROR: bitstream exhausted.\n", stderr);
 		return -1;
 	}
 
 	/* get next bit and return */
-	char ret = (*bs->buffer >> bs->bit_num) & 1;
+	ret = (*bs->buffer >> bs->bit_num) & 1;
 
 	/* advance to next bit */
 	/* Out of bits in this byte: next! */
@@ -92,7 +94,7 @@ char _smk_bs_read_1(struct smk_bit_t* const bs)
 
 /* Reads a byte
 	Returns -1 if error. */
-short _smk_bs_read_8(struct smk_bit_t* const bs)
+short smk_bs_read_8(struct smk_bit_t* const bs)
 {
 	/* sanity check */
 	assert(bs);
@@ -100,7 +102,7 @@ short _smk_bs_read_8(struct smk_bit_t* const bs)
 	/* don't die when running out of bits, but signal */
 	if (bs->buffer + (bs->bit_num > 0) >= bs->end)
 	{
-		fputs("libsmacker::_smk_bs_read_8(bs): ERROR: bitstream exhausted.\n", stderr);
+		fputs("libsmacker::smk_bs_read_8(bs): ERROR: bitstream exhausted.\n", stderr);
 		return -1;
 	}
 

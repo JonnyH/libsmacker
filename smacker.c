@@ -16,7 +16,8 @@
 
 /* data structures */
 #include "smk_bitstream.h"
-#include "smk_hufftree.h"
+#include "smk_huff8.h"
+#include "smk_huff16.h"
 
 /* GLOBALS */
 /* tree processing order */
@@ -920,12 +921,12 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 		/* support for v4 full-blocks */
 		if (type == 1 && s->v == '4')
 		{
-			smk_bs_read_1(bs, bit);
+			bit = smk_bs_read_1(bs);
 			if (bit)
 			{
 				type = 4;
 			} else {
-				smk_bs_read_1(bs, bit);
+				bit = smk_bs_read_1(bs);
 				if (bit)
 				{
 					type = 5;
@@ -1090,7 +1091,7 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		/*  Set up a bitstream */
 		bs = smk_bs_init (p, size);
 
-		smk_bs_read_1(bs,bit);
+		bit = smk_bs_read_1(bs);
 
 		if (!bit)
 		{
@@ -1098,12 +1099,12 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 			goto error;
 		}
 
-		smk_bs_read_1(bs,bit);
+		bit = smk_bs_read_1(bs);
 		if (s->channels != (bit == 1 ? 2 : 1))
 		{
 			fputs("libsmacker::smk_render - ERROR: mono/stereo mismatch\n",stderr);
 		}
-		smk_bs_read_1(bs,bit);
+		bit = smk_bs_read_1(bs);
 		if (s->bitdepth != (bit == 1 ? 16 : 8))
 		{
 			fputs("libsmacker::smk_render - ERROR: 8-/16-bit mismatch\n",stderr);
@@ -1133,10 +1134,10 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		/* read initial sound level */
 		if (s->channels == 2)
 		{
-			smk_bs_read_8(bs,unpack);
+			unpack = smk_bs_read_8(bs);
 			if (s->bitdepth == 16)
 			{
-				smk_bs_read_8(bs,((short*)t)[1])
+				((short*)t)[1] = smk_bs_read_8(bs);
 				((short*)t)[1] |= (unpack << 8);
 			}
 			else
@@ -1144,10 +1145,10 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 				((unsigned char*)t)[1] = (unsigned char)unpack;
 			}
 		}
-		smk_bs_read_8(bs,unpack);
+		unpack = smk_bs_read_8(bs);
 		if (s->bitdepth == 16)
 		{
-				smk_bs_read_8(bs,((short*)t)[0])
+				((short*)t)[0] = smk_bs_read_8(bs);
 				((short*)t)[0] |= (unpack << 8);
 		}
 		else
