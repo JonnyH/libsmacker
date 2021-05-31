@@ -363,6 +363,12 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 
 	/* set up a Bitstream */
 	bs = smk_bs_init(hufftree_chunk, tree_size);
+	if (bs == NULL) {
+		/* error in allocation */
+		fputs("libsmacker::smk_open_generic: ERROR: failed to allocate bitstream\n", stderr);
+		goto error;
+	}
+
 	/* create some tables */
 	for (temp_u = 0; temp_u < 4; temp_u ++)
 	{
@@ -370,7 +376,7 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	}
 
 	/* clean up */
-	smk_free(bs);
+	smk_bs_free(bs);
 	smk_free(hufftree_chunk);
 
 	/* Go ahead and malloc storage for the video frame */
@@ -410,7 +416,6 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	return s;
 
 error:
-	smk_free(bs);
 	smk_free(hufftree_chunk);
 	smk_close(s);
 	return NULL;
@@ -891,8 +896,12 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	col = 0;
 
 	/* Set up a bitstream for video unpacking */
-	/* We could check the return code but it will only fail if p is null and we already verified that. */
 	bs = smk_bs_init (p, size);
+	if (bs == NULL) {
+		/* error in allocation */
+		fputs("libsmacker::smk_render_video: ERROR: failed to allocate bitstream\n", stderr);
+		return -1;
+	}
 
 	/* Reset the cache on all bigtrees */
 	smk_huff16_reset(s->tree[0]);
@@ -1026,12 +1035,12 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 		}
 	}
 
-	smk_free(bs);
+	smk_bs_free(bs);
 
 	return 0;
 
 error:
-	smk_free(bs);
+	smk_bs_free(bs);
 	return -1;
 }
 

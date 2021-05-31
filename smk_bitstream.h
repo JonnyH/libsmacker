@@ -1,6 +1,6 @@
 /**
 	libsmacker - A C library for decoding .smk Smacker Video files
-	Copyright (C) 2012-2017 Greg Kennedy
+	Copyright (C) 2012-2021 Greg Kennedy
 
 	See smacker.h for more information.
 
@@ -18,6 +18,9 @@ struct smk_bit_t;
 /* BITSTREAM Functions */
 /** Initialize a bitstream */
 struct smk_bit_t* smk_bs_init(const unsigned char* b, unsigned long size);
+
+/** Free a bitstream */
+void smk_bs_free(struct smk_bit_t * bs);
 
 /** This macro checks return code from _smk_bs_read_1 and
 	jumps to error label if problems occur. */
