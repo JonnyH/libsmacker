@@ -91,7 +91,7 @@ struct smk_t
 		unsigned char	v;
 
 		/* Huffman trees */
-		/* unsigned long tree_size[4]; */
+		unsigned long tree_size[4];
 		struct smk_huff16_t* tree[4];
 
 		/* Palette data type: pointer to last-decoded-palette */
@@ -293,12 +293,10 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	/* Read size of "hufftree chunk" - save for later. */
 	smk_read_ul(tree_size);
 
-	/* "unpacked" sizes of each huff tree - we don't use
-		but calling application might. */
+	/* "unpacked" sizes of each huff tree */
 	for (temp_l = 0; temp_l < 4; temp_l ++)
 	{
-/*		smk_read_ul(s->video.tree_size[temp_u]); */
-		smk_read_ul(temp_u);
+		smk_read_ul(s->video.tree_size[temp_l]);
 	}
 
 	/* read audio rate data */
@@ -373,7 +371,7 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	/* create some tables */
 	for (temp_u = 0; temp_u < 4; temp_u ++)
 	{
-		smk_huff16_build(bs,s->video.tree[temp_u]);
+		s->video.tree[temp_u] = smk_huff16_build(bs,s->video.tree_size[temp_u]);
 	}
 
 	/* clean up */
@@ -912,7 +910,7 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 
 	while ( row < s->h )
 	{
-		smk_huff16_lookup(bs,s->tree[SMK_TREE_TYPE],unpack);
+		unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_TYPE]);
 
 		type = ((unpack & 0x0003));
 		blocklen = ((unpack & 0x00FC) >> 2);
@@ -940,10 +938,10 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 			switch(type)
 			{
 				case 0:
-					smk_huff16_lookup(bs,s->tree[SMK_TREE_MCLR],unpack);
+					unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_MCLR]);
 					s1 = (unpack & 0xFF00) >> 8;
 					s2 = (unpack & 0x00FF);
-					smk_huff16_lookup(bs,s->tree[SMK_TREE_MMAP],unpack);
+					unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_MMAP]);
 
 					temp = 0x01;
 					for (k = 0; k < 4; k ++)
@@ -967,10 +965,10 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 1: /* FULL BLOCK */
 					for (k = 0; k < 4; k ++)
 					{
-						smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL],unpack);
+						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
 						t[skip + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + 2] = (unpack & 0x00FF);
-						smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL],unpack);
+						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
 						t[skip + 1] = ((unpack & 0xFF00) >> 8);
 						t[skip] = (unpack & 0x00FF);
 						skip += s->w;
@@ -1001,7 +999,7 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 4: /* V4 DOUBLE BLOCK */
 					for (k = 0; k < 2; k ++)
 					{
-						smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL],unpack);
+						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
 						for (i = 0; i < 2; i ++)
 						{
 							memset(&t[skip + 2],(unpack & 0xFF00) >> 8,2);
@@ -1013,12 +1011,12 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 5: /* V4 HALF BLOCK */
 					for (k = 0; k < 2; k ++)
 					{
-						smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL],unpack);
+						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
 						t[skip + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + 2] = (unpack & 0x00FF);
 						t[skip + s->w + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + s->w + 2] = (unpack & 0x00FF);
-						smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL],unpack);
+						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
 						t[skip + 1] = ((unpack & 0xFF00) >> 8);
 						t[skip] = (unpack & 0x00FF);
 						t[skip + s->w + 1] = ((unpack & 0xFF00) >> 8);
@@ -1111,22 +1109,22 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		}
 
 		/* build the trees */
-		smk_huff8_build(bs,aud_tree[0]);
+		aud_tree[0] = smk_huff8_build(bs);
 		j = 1;
 		k = 1;
 		if (s->bitdepth == 16)
 		{
-			smk_huff8_build(bs,aud_tree[1]);
+			aud_tree[1] = smk_huff8_build(bs);
 			k = 2;
 		}
 		if (s->channels == 2)
 		{
-			smk_huff8_build(bs,aud_tree[2]);
+			aud_tree[2] = smk_huff8_build(bs);
 			j = 2;
 			k = 2;
 			if (s->bitdepth == 16)
 			{
-				smk_huff8_build(bs,aud_tree[3]);
+				aud_tree[3] = smk_huff8_build(bs);
 				k = 4;
 			}
 		}
@@ -1161,15 +1159,15 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		{
 			if (s->bitdepth == 8)
 			{
-				smk_huff8_lookup(bs,aud_tree[0],unpack);
+				unpack = smk_huff8_lookup(bs,aud_tree[0]);
 				((unsigned char*)t)[j] = (char)unpack + ((unsigned char*)t)[j - s->channels];
 				j ++;
 				k++;
 			}
 			else
 			{
-				smk_huff8_lookup(bs,aud_tree[0],unpack);
-				smk_huff8_lookup(bs,aud_tree[1],unpack2);
+				unpack = smk_huff8_lookup(bs,aud_tree[0]);
+				unpack2 = smk_huff8_lookup(bs,aud_tree[1]);
 				((short*)t)[j] = (short) ( unpack | (unpack2 << 8) ) + ((short*)t)[j - s->channels];
 				j ++;
 				k+=2;
@@ -1178,15 +1176,15 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 			{
 				if (s->bitdepth == 8)
 				{
-					smk_huff8_lookup(bs,aud_tree[2],unpack);
+					unpack = smk_huff8_lookup(bs,aud_tree[2]);
 					((unsigned char*)t)[j] = (char)unpack + ((unsigned char*)t)[j - 2];
 					j ++;
 					k++;
 				}
 				else
 				{
-					smk_huff8_lookup(bs,aud_tree[2],unpack);
-					smk_huff8_lookup(bs,aud_tree[3],unpack2);
+					unpack = smk_huff8_lookup(bs,aud_tree[2]);
+					unpack2 = smk_huff8_lookup(bs,aud_tree[3]);
 					((short*)t)[j] = (short) ( unpack | (unpack2 << 8) ) + ((short*)t)[j - 2];
 					j ++;
 					k+=2;

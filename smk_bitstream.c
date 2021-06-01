@@ -72,7 +72,7 @@ char smk_bs_read_1(struct smk_bit_t* const bs)
 	/* don't die when running out of bits, but signal */
 	if (bs->buffer >= bs->end)
 	{
-		fputs("libsmacker::smk_bs_read_1(bs): ERROR: bitstream exhausted.\n", stderr);
+		fputs("libsmacker::smk_bs_read_1(): ERROR: bitstream exhausted.\n", stderr);
 		return -1;
 	}
 
@@ -102,7 +102,7 @@ short smk_bs_read_8(struct smk_bit_t* const bs)
 	/* don't die when running out of bits, but signal */
 	if (bs->buffer + (bs->bit_num > 0) >= bs->end)
 	{
-		fputs("libsmacker::smk_bs_read_8(bs): ERROR: bitstream exhausted.\n", stderr);
+		fputs("libsmacker::smk_bs_read_8(): ERROR: bitstream exhausted.\n", stderr);
 		return -1;
 	}
 

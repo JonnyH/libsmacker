@@ -20,32 +20,12 @@
 struct smk_huff16_t;
 
 /************************ 16-BIT HUFF-TREE FUNCTIONS ************************/
-/** This macro checks return code from _smk_huff16_build and
-	jumps to error label if problems occur. */
-#define smk_huff16_build(bs,t) \
-{ \
-	if (!(t = _smk_huff16_build(bs))) \
-	{ \
-		fprintf(stderr, "libsmacker::smk_huff16_build(" #bs ", " #t ") - ERROR (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
-		goto error; \
-	} \
-}
 /** Build a 16-bit tree from a bitstream */
-struct smk_huff16_t* _smk_huff16_build(struct smk_bit_t* bs);
+struct smk_huff16_t* smk_huff16_build(struct smk_bit_t* bs, unsigned int alloc_size);
 
-/** This macro checks return code from smk_huff16_lookup and
-	jumps to error label if problems occur. */
-#define smk_huff16_lookup(bs,t,s) \
-{ \
-	if ((s = _smk_huff16_lookup(bs, t)) < 0) \
-	{ \
-		fprintf(stderr, "libsmacker::smk_huff16_lookup(" #bs ", " #t ", " #s ") - ERROR (file: %s, line: %lu)\n", __FILE__, (unsigned long)__LINE__); \
-		goto error; \
-	} \
-}
 /** Look up a 16-bit value in the bigtree by following a bitstream
 	returns -1 on error */
-long _smk_huff16_lookup(struct smk_bit_t* bs, struct smk_huff16_t* big);
+long smk_huff16_lookup(struct smk_bit_t* bs, struct smk_huff16_t* big);
 
 /** Reset the cache in a 16-bit tree */
 void smk_huff16_reset(struct smk_huff16_t* big);

@@ -31,7 +31,7 @@ struct smk_huff8_t
 };
 
 /* Recursive sub-func for building a tree into an array. */
-static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
+static int _smk_huff8_build_rec(struct smk_huff8_t * const t, struct smk_bit_t* const bs)
 {
 	/* Read the bit */
 	char bit;
@@ -40,7 +40,7 @@ static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
 	bit = smk_bs_read_1(bs);
 	if (bit < 0)
 	{
-		fputs("libsmacker::_smk_huff8_build_rec(t,bs) - ERROR: get_bit returned -1\n", stderr);
+		fputs("libsmacker::_smk_huff8_build_rec() - ERROR: get_bit returned -1\n", stderr);
 		return 0;
 	} else if (bit) {
 		/* Bit set: this forms a Branch node.
@@ -55,7 +55,7 @@ static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
 
 		/* go build the left branch */
 		if (! _smk_huff8_build_rec(t, bs)) {
-			fputs("libsmacker::_smk_huff8_build_rec(t,bs) - ERROR: failed to build left sub-tree\n", stderr);
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: failed to build left sub-tree\n", stderr);
 			return 0;
 		}
 
@@ -65,7 +65,7 @@ static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
 
 		/* continue building the right side */
 		if (! _smk_huff8_build_rec(t, bs)) {
-			fputs("libsmacker::_smk_huff8_build_rec(t,bs) - ERROR: failed to build right sub-tree\n", stderr);
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: failed to build right sub-tree\n", stderr);
 			return 0;
 		}
 	} else {
@@ -74,7 +74,7 @@ static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
 		value = smk_bs_read_8(bs);
 		if (value < 0)
 		{
-			fputs("libsmacker::_smk_huff8_build_rec(t,bs) - ERROR: get_byte returned -1\n", stderr);
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: get_byte returned -1\n", stderr);
 			return 0;
 		}
 
@@ -88,7 +88,7 @@ static int _smk_huff8_build_rec(struct smk_huff8_t *t, struct smk_bit_t* bs)
 
 /**
 */
-struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
+struct smk_huff8_t* smk_huff8_build(struct smk_bit_t* const bs)
 {
 	struct smk_huff8_t* ret;
 	char bit;
@@ -101,7 +101,7 @@ struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
 
 	if (bit < 0)
 	{
-		fputs("libsmacker::smk_huff8_build(bs) - ERROR: initial get_bit returned -1\n", stderr);
+		fputs("libsmacker::smk_huff8_build() - ERROR: initial get_bit returned -1\n", stderr);
 		return NULL;
 	}
 
@@ -109,7 +109,7 @@ struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
 	ret = malloc(sizeof(struct smk_huff8_t));
 	if (ret == NULL)
 	{
-		perror("libsmacker::smk_huff8_build(bs) - ERROR: malloc() returned NULL");
+		perror("libsmacker::smk_huff8_build() - ERROR: malloc() returned NULL");
 		return NULL;
 	}
 
@@ -120,7 +120,7 @@ struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
 	if (bit)
 	{
 		if (! _smk_huff8_build_rec(ret, bs)) {
-			fputs("libsmacker::smk_huff8_build(bs) - ERROR: tree build failed\n", stderr);
+			fputs("libsmacker::smk_huff8_build() - ERROR: tree build failed\n", stderr);
 			smk_huff8_free(ret);
 			return NULL;
 		}
@@ -133,12 +133,12 @@ struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
 
 	if (bit < 0)
 	{
-		fputs("libsmacker::smk_huff8_build(bs) - ERROR: final get_bit returned -1\n", stderr);
+		fputs("libsmacker::smk_huff8_build() - ERROR: final get_bit returned -1\n", stderr);
 		smk_huff8_free(ret);
 		return NULL;
 	} else if (bit)
 	{
-		fputs("libsmacker::_smk_huff8_build(bs) - ERROR: final get_bit returned 1\n", stderr);
+		fputs("libsmacker::smk_huff8_build() - ERROR: final get_bit returned 1\n", stderr);
 		smk_huff8_free(ret);
 		return NULL;
 	}
@@ -148,7 +148,7 @@ struct smk_huff8_t* _smk_huff8_build(struct smk_bit_t* bs)
 
 /* Look up an 8-bit value from a basic huff tree.
 	Return -1 on error. */
-short _smk_huff8_lookup(struct smk_bit_t* bs, const struct smk_huff8_t* t)
+short smk_huff8_lookup(struct smk_bit_t* const bs, const struct smk_huff8_t* const t)
 {
 	char bit;
 	int index = 0;
@@ -161,7 +161,7 @@ short _smk_huff8_lookup(struct smk_bit_t* bs, const struct smk_huff8_t* t)
 		bit = smk_bs_read_1(bs);
 		if (bit < 0)
 		{
-			fputs("libsmacker::smk_huff8_build(bs) - ERROR: final get_bit returned -1\n", stderr);
+			fputs("libsmacker::smk_huff8_lookup() - ERROR: final get_bit returned -1\n", stderr);
 			return -1;
 		} else if (bit) {
 			/* take the right branch */
