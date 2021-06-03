@@ -111,8 +111,7 @@ short smk_bs_read_8(struct smk_bit_t* const bs)
 		/* unaligned read */
 		unsigned char ret = *bs->buffer >> bs->bit_num;
 		bs->buffer ++;
-		ret |= (*bs->buffer << (8 - bs->bit_num));
-		return ret;
+		return ret | (*bs->buffer << (8 - bs->bit_num) & 0xFF);
 	}
 
 	/* aligned read */

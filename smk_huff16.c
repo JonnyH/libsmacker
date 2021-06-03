@@ -101,7 +101,7 @@ static int _smk_huff16_build_rec(struct smk_huff16_t * const t, struct smk_bit_t
 		}
 
 		/* Looks OK: we got low and hi values. Return a new LEAF */
-		t->tree[t->tree_size] = (value << 8) | value2;
+		t->tree[t->tree_size] = (value2 << 8) | value;
 
 		/* Last: when building the tree, some Values may correspond to cache positions.
 			Identify these values and set the Escape code byte accordingly. */
