@@ -11,13 +11,14 @@
 
 #include "smacker.h"
 
-/* safe malloc and free */
 #include "smk_malloc.h"
 
-/* data structures */
-#include "smk_bitstream.h"
-#include "smk_huff8.h"
-#include "smk_huff16.h"
+#include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <errno.h>
+
 
 /* GLOBALS */
 /* tree processing order */
@@ -25,6 +26,516 @@
 #define SMK_TREE_MCLR	1
 #define SMK_TREE_FULL	2
 #define SMK_TREE_TYPE	3
+
+/* ************************************************************************* */
+/* BITSTREAM Structure */
+/* ************************************************************************* */
+/* Wraps a block of memory and adds functions to read 1 or 8 bits at a time */
+struct smk_bit_t
+{
+	const unsigned char * buffer, * end;
+	unsigned int bit_num;
+};
+
+/* ************************************************************************* */
+/* BITSTREAM Functions */
+/* ************************************************************************* */
+/** Initialize a bitstream wrapper */
+static void smk_bs_init(struct smk_bit_t * const bs, const unsigned char *const b, const size_t size)
+{
+	/* null check */
+	assert(bs);
+	assert(b);
+
+	/* set up the pointer to bitstream start and end, and set the bit pointer to 0 */
+	bs->buffer = b;
+	bs->end = b + size;
+	bs->bit_num = 0;
+}
+
+/* Reads a bit
+	Returns -1 if error encountered */
+static int smk_bs_read_1(struct smk_bit_t* const bs)
+{
+	int ret;
+
+	/* null check */
+	assert(bs);
+
+	/* don't die when running out of bits, but signal */
+	if (bs->buffer >= bs->end)
+	{
+		fputs("libsmacker::smk_bs_read_1(): ERROR: bitstream exhausted.\n", stderr);
+		return -1;
+	}
+
+	/* get next bit and store for return */
+	ret = (*bs->buffer >> bs->bit_num) & 1;
+
+	/* advance to next bit */
+	if (bs->bit_num > 6)
+	{
+		/* Out of bits in this byte: next! */
+		bs->buffer ++;
+		bs->bit_num = 0;
+	} else {
+		bs->bit_num ++;
+	}
+
+	return ret;
+}
+
+/* Reads a byte
+	Returns -1 if error. */
+static int smk_bs_read_8(struct smk_bit_t* const bs)
+{
+	/* null check */
+	assert(bs);
+
+	/* don't die when running out of bits, but signal */
+	if (bs->buffer + (bs->bit_num > 0) >= bs->end)
+	{
+		fputs("libsmacker::smk_bs_read_8(): ERROR: bitstream exhausted.\n", stderr);
+		return -1;
+	}
+
+	if (bs->bit_num)
+	{
+		/* unaligned read */
+		int ret = *bs->buffer >> bs->bit_num;
+		bs->buffer ++;
+		return ret | (*bs->buffer << (8 - bs->bit_num) & 0xFF);
+	}
+
+	/* aligned read */
+	return *bs->buffer++;
+}
+
+/* ************************************************************************* */
+/* HUFF8 Structure */
+/* ************************************************************************* */
+#define SMK_HUFF8_BRANCH 0x8000
+#define SMK_HUFF8_LEAF_MASK 0x7FFF
+
+struct smk_huff8_t
+{
+	/* Unfortunately, smk files do not store the alloc size of a small tree.
+		511 entries is the pessimistic case (N codes and N-1 branches,
+		with N=256 for 8 bits) */
+	size_t size;
+	unsigned short tree[511];
+};
+
+/* ************************************************************************* */
+/* HUFF8 Functions */
+/* ************************************************************************* */
+/* Recursive sub-func for building a tree into an array. */
+static int _smk_huff8_build_rec(struct smk_huff8_t * const t, struct smk_bit_t* const bs)
+{
+	int bit, value;
+
+	assert(t);
+	assert(bs);
+
+	/* Make sure we aren't running out of bounds */
+	if (t->size >= 511) {
+		fputs("libsmacker::_smk_huff8_build_rec() - ERROR: size exceeded\n", stderr);
+		return 0;
+	}
+
+	/* Read the next bit */
+	if ((bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::_smk_huff8_build_rec() - ERROR: get_bit returned -1\n", stderr);
+		return 0;
+	}
+
+	if (bit) {
+		/* Bit set: this forms a Branch node.
+			what we have to do is build the left-hand branch,
+			assign the "jump" address,
+			then build the right hand branch from there.
+		*/
+
+		/* track the current index */
+		value = t->size ++;
+
+		/* go build the left branch */
+		if (! _smk_huff8_build_rec(t, bs)) {
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: failed to build left sub-tree\n", stderr);
+			return 0;
+		}
+
+		/* now go back to our current location, and
+			mark our location as a "jump" */
+		t->tree[value] = SMK_HUFF8_BRANCH | t->size;
+
+		/* continue building the right side */
+		if (! _smk_huff8_build_rec(t, bs)) {
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: failed to build right sub-tree\n", stderr);
+			return 0;
+		}
+	} else {
+		/* Bit unset signifies a Leaf node. */
+		/* Attempt to read value */
+		if ((value = smk_bs_read_8(bs)) < 0)
+		{
+			fputs("libsmacker::_smk_huff8_build_rec() - ERROR: get_byte returned -1\n", stderr);
+			return 0;
+		}
+
+//printf("Read 8 bits, it's %u\n", value);
+
+		/* store to tree */
+		t->tree[t->size ++] = value;
+	}
+
+	return 1;
+}
+
+/**
+	Build an 8-bit Hufftree out of a Bitstream.
+*/
+static int smk_huff8_build(struct smk_huff8_t * const t, struct smk_bit_t* const bs)
+{
+	int bit;
+
+	/* null check */
+	assert(t);
+	assert(bs);
+
+	/* Smacker huff trees begin with a set-bit. */
+	if ( (bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::smk_huff8_build() - ERROR: initial get_bit returned -1\n", stderr);
+		return 0;
+	}
+
+	/* OK to fill out the struct now */
+	t->size = 0;
+
+	/* First bit indicates whether a tree is present or not. */
+	/*  Very small or audio-only files may have no tree. */
+	if (bit)
+	{
+		if (! _smk_huff8_build_rec(t, bs)) {
+			fputs("libsmacker::smk_huff8_build() - ERROR: tree build failed\n", stderr);
+			return 0;
+		}
+	}
+	else
+		t->tree[0] = 0;
+
+	/* huff trees end with an unset-bit */
+	if ( (bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::smk_huff8_build() - ERROR: final get_bit returned -1\n", stderr);
+		return 0;
+	}
+
+	/* a 0 is expected here, a 1 generally indicates a problem! */
+	if (bit)
+	{
+		fputs("libsmacker::smk_huff8_build() - ERROR: final get_bit returned 1\n", stderr);
+		return 0;
+	}
+
+	return 1;
+}
+
+/* Look up an 8-bit value from a basic huff tree.
+	Return -1 on error. */
+static int smk_huff8_lookup(const struct smk_huff8_t* const t, struct smk_bit_t* const bs)
+{
+	int bit, index = 0;
+
+	/* null check */
+	assert(t);
+	assert(bs);
+
+	while (t->tree[index] & SMK_HUFF8_BRANCH) {
+		if ( (bit = smk_bs_read_1(bs)) < 0)
+		{
+			fputs("libsmacker::smk_huff8_lookup() - ERROR: get_bit returned -1\n", stderr);
+			return -1;
+		}
+
+		if (bit) {
+			/* take the right branch */
+			index = t->tree[index] & SMK_HUFF8_LEAF_MASK;
+		} else {
+			/* take the left branch */
+			index ++;
+		}
+	}
+
+	/* at leaf node.  return the value at this point. */
+	return t->tree[index];
+}
+
+/* ************************************************************************* */
+/* HUFF16 Structure */
+/* ************************************************************************* */
+#define SMK_HUFF16_BRANCH    0x80000000
+#define SMK_HUFF16_CACHE     0x40000000
+#define SMK_HUFF16_LEAF_MASK 0x3FFFFFFF
+
+struct smk_huff16_t
+{
+	unsigned int * tree;
+	size_t size;
+
+	/* recently-used values cache */
+	unsigned short cache[3];
+};
+
+/* ************************************************************************* */
+/* HUFF16 Functions */
+/* ************************************************************************* */
+/* Recursive sub-func for building a tree into an array. */
+static int _smk_huff16_build_rec(struct smk_huff16_t * const t, struct smk_bit_t* const bs, const struct smk_huff8_t* const low8, const struct smk_huff8_t* const hi8, const size_t limit)
+{
+	int bit, value;
+
+	assert(t);
+	assert(bs);
+	assert(low8);
+	assert(hi8);
+
+	/* Make sure we aren't running out of bounds */
+	if (t->size >= limit) {
+		fputs("libsmacker::_smk_huff16_build_rec() - ERROR: size exceeded\n", stderr);
+		return 0;
+	}
+
+	/* Read the first bit */
+	if ( (bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::_smk_huff16_build_rec() - ERROR: get_bit returned -1\n", stderr);
+		return 0;
+	}
+
+	if (bit) {
+		/* See tree-in-array explanation for HUFF8 above */
+
+		/* track the current index */
+		value = t->size ++;
+
+		/* go build the left branch */
+		if (! _smk_huff16_build_rec(t, bs, low8, hi8, limit)) {
+			fputs("libsmacker::_smk_huff16_build_rec() - ERROR: failed to build left sub-tree\n", stderr);
+			return 0;
+		}
+
+		/* now go back to our current location, and
+			mark our location as a "jump" */
+		t->tree[value] = SMK_HUFF16_BRANCH | t->size;
+
+		/* continue building the right side */
+		if (! _smk_huff16_build_rec(t, bs, low8, hi8, limit)) {
+			fputs("libsmacker::_smk_huff16_build_rec() - ERROR: failed to build right sub-tree\n", stderr);
+			return 0;
+		}
+	} else {
+		/* Bit unset signifies a Leaf node. */
+		/* Attempt to read LOW value */
+		if ((value = smk_huff8_lookup(low8, bs)) < 0)
+		{
+			fputs("libsmacker::_smk_huff16_build_rec() - ERROR: get LOW value returned -1\n", stderr);
+			return 0;
+		}
+		t->tree[t->size] = value;
+
+		/* now read HIGH value */
+		if ((value = smk_huff8_lookup(hi8, bs)) < 0)
+		{
+			fputs("libsmacker::_smk_huff16_build_rec() - ERROR: get HIGH value returned -1\n", stderr);
+			return 0;
+		}
+
+		/* Looks OK: we got low and hi values. Return a new LEAF */
+		t->tree[t->size] |= (value << 8);
+
+		/* Last: when building the tree, some Values may correspond to cache positions.
+			Identify these values and set the Escape code byte accordingly. */
+		if (t->tree[t->size] == t->cache[0])
+		{
+			t->tree[t->size] = SMK_HUFF16_CACHE;
+		}
+		else if (t->tree[t->size] == t->cache[1])
+		{
+			t->tree[t->size] = SMK_HUFF16_CACHE | 1;
+		}
+		else if (t->tree[t->size] == t->cache[2])
+		{
+			t->tree[t->size] = SMK_HUFF16_CACHE | 2;
+		}
+
+		t->size ++;
+	}
+	return 1;
+}
+
+/* Entry point for building a big 16-bit tree. */
+static int smk_huff16_build(struct smk_huff16_t * const t, struct smk_bit_t* const bs, const unsigned int alloc_size)
+{
+	struct smk_huff8_t low8, hi8;
+
+	size_t limit;
+
+	int value, i, bit;
+
+	/* null check */
+	assert(t);
+	assert(bs);
+
+	/* Smacker huff trees begin with a set-bit. */
+	if ( (bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::smk_huff16_build() - ERROR: initial get_bit returned -1\n", stderr);
+		return 0;
+	}
+
+	t->size = 0;
+
+	/* First bit indicates whether a tree is present or not. */
+	/*  Very small or audio-only files may have no tree. */
+	if (bit)
+	{
+		/* build low-8-bits tree */
+		if (! smk_huff8_build(&low8, bs)) {
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to build LOW tree\n", stderr);
+			return 0;
+		}
+		/* build hi-8-bits tree */
+		if (! smk_huff8_build(&hi8, bs)) {
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to build HIGH tree\n", stderr);
+			return 0;
+		}
+
+		/* Init the escape code cache. */
+		for (i = 0; i < 3; i ++)
+		{
+			if ( (value = smk_bs_read_8(bs)) < 0)
+			{
+				fprintf(stderr, "libsmacker::smk_huff16_build() - ERROR: get LOW value for cache %d returned -1\n", i);
+				return 0;
+			}
+			t->cache[i] = value;
+
+			/* now read HIGH value */
+			if ( (value = smk_bs_read_8(bs)) < 0)
+			{
+				fprintf(stderr, "libsmacker::smk_huff16_build() - ERROR: get HIGH value for cache %d returned -1\n", i);
+				return 0;
+			}
+			t->cache[i] |= (value << 8);
+		}
+
+		/* Everything looks OK so far. Time to malloc structure. */
+		limit = (alloc_size - 12) / 4;
+		t->tree = malloc(limit * sizeof(unsigned int));
+		if (t->tree == NULL) {
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to malloc() huff16 tree\n", stderr);
+			return 0;
+		}
+
+		/* Finally, call recursive function to retrieve the Bigtree. */
+		if (! _smk_huff16_build_rec(t, bs, &low8, &hi8, limit))
+		{
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to build huff16 tree\n", stderr);
+			free(t->tree);
+			t->tree = NULL;
+			return 0;
+		}
+
+		/* check that we completely filled the tree */
+		if (limit != t->size)
+		{
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to completely decode huff16 tree\n", stderr);
+			free(t->tree);
+			t->tree = NULL;
+			return 0;
+		}
+	}
+	else
+	{
+		t->tree = malloc(sizeof(unsigned int));
+		if (t->tree == NULL) {
+			fputs("libsmacker::smk_huff16_build() - ERROR: failed to malloc() huff16 tree\n", stderr);
+			return 0;
+		}
+		t->tree[0] = 0;
+		//t->cache[0] = t->cache[1] = t->cache[2] = 0;
+	}
+
+	/* Check final end tag. */
+	if ( (bit = smk_bs_read_1(bs)) < 0)
+	{
+		fputs("libsmacker::smk_huff16_build() - ERROR: final get_bit returned -1\n", stderr);
+		free(t->tree);
+		t->tree = NULL;
+		return 0;
+	}
+
+	/* a 0 is expected here, a 1 generally indicates a problem! */
+	if (bit)
+	{
+		fputs("libsmacker::smk_huff16_build() - ERROR: final get_bit returned 1\n", stderr);
+		free(t->tree);
+		t->tree = NULL;
+		return 0;
+	}
+
+	return 1;
+}
+
+/* Look up a 16-bit value from a large huff tree.
+	Return -1 on error.
+	Note that this also updates the recently-used-values cache. */
+static int smk_huff16_lookup(struct smk_huff16_t* const t, struct smk_bit_t* const bs)
+{
+	int bit, value, index = 0;
+
+	/* null check */
+	assert(t);
+	assert(bs);
+
+	while (t->tree[index] & SMK_HUFF16_BRANCH) {
+		if ( (bit = smk_bs_read_1(bs)) < 0)
+		{
+			fputs("libsmacker::smk_huff16_lookup() - ERROR: get_bit returned -1\n", stderr);
+			return -1;
+		}
+
+		if (bit) {
+			/* take the right branch */
+			index = t->tree[index] & SMK_HUFF16_LEAF_MASK;
+		} else {
+			/* take the left branch */
+			index ++;
+		}
+	}
+
+	/* Get the value at this point */
+	value = t->tree[index];
+
+	if (value & SMK_HUFF16_CACHE) {
+		/* uses cached value instead of actual value */
+		value = t->cache[value & SMK_HUFF16_LEAF_MASK];
+	}
+
+	if (t->cache[0] != value)
+	{
+		/* Update the cache, by moving val to the front of the queue,
+			if it isn't already there. */
+		t->cache[2] = t->cache[1];
+		t->cache[1] = t->cache[0];
+		t->cache[0] = value;
+	}
+
+	return value;
+}
 
 /* SMACKER DATA STRUCTURES */
 struct smk_t
@@ -92,7 +603,7 @@ struct smk_t
 
 		/* Huffman trees */
 		unsigned long tree_size[4];
-		struct smk_huff16_t* tree[4];
+		struct smk_huff16_t tree[4];
 
 		/* Palette data type: pointer to last-decoded-palette */
 		unsigned char palette[256][3];
@@ -210,8 +721,9 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 		these vars are used to load, then decode them */
 	unsigned char* hufftree_chunk = NULL;
 	unsigned long tree_size;
+
 	/* a bitstream struct */
-	struct smk_bit_t* bs = NULL;
+	struct smk_bit_t bs;
 
 	/* safe malloc the structure */
 	smk_malloc(s,sizeof (struct smk_t));
@@ -361,21 +873,19 @@ static smk smk_open_generic(const unsigned char m, union smk_read_t fp, unsigned
 	smk_read(hufftree_chunk,tree_size);
 
 	/* set up a Bitstream */
-	bs = smk_bs_init(hufftree_chunk, tree_size);
-	if (bs == NULL) {
-		/* error in allocation */
-		fputs("libsmacker::smk_open_generic: ERROR: failed to allocate bitstream\n", stderr);
-		goto error;
-	}
+	smk_bs_init(&bs, hufftree_chunk, tree_size);
 
 	/* create some tables */
 	for (temp_u = 0; temp_u < 4; temp_u ++)
 	{
-		s->video.tree[temp_u] = smk_huff16_build(bs,s->video.tree_size[temp_u]);
+		if (! smk_huff16_build(&s->video.tree[temp_u], &bs,s->video.tree_size[temp_u]))
+		{
+			fprintf(stderr,"libsmacker::smk_open_generic - ERROR: failed to create huff16 tree %lu\n",temp_u);
+			goto error;
+		}
 	}
 
 	/* clean up */
-	smk_bs_free(bs);
 	smk_free(hufftree_chunk);
 
 	/* Go ahead and malloc storage for the video frame */
@@ -504,13 +1014,11 @@ void smk_close(smk s)
 	smk_assert(s);
 
 	/* free video sub-components */
+	for (u = 0; u < 4; u ++)
 	{
-		for (u = 0; u < 4; u ++)
-		{
-			if (s->video.tree[u]) smk_huff16_free(s->video.tree[u]);
-		}
-		smk_free(s->video.frame);
+		if (s->video.tree[u].tree) free(s->video.tree[u].tree);
 	}
+	smk_free(s->video.frame);
 
 	/* free audio sub-components */
 	for (u=0; u<7; u++)
@@ -555,7 +1063,7 @@ error: ;
 /* tell some info about the file */
 char smk_info_all(const smk object, unsigned long* frame, unsigned long* frame_count, double* usf)
 {
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 	if (!frame && !frame_count && !usf) {
 		fputs("libsmacker::smk_info_all(object,frame,frame_count,usf) - ERROR: Request for info with all-NULL return references\n",stderr);
@@ -578,7 +1086,7 @@ error:
 
 char smk_info_video(const smk object, unsigned long* w, unsigned long* h, unsigned char* y_scale_mode)
 {
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 	if (!w && !h && !y_scale_mode)
 	{
@@ -605,7 +1113,7 @@ char smk_info_audio(const smk object, unsigned char* track_mask, unsigned char c
 {
 	unsigned char i;
 
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 
 	if (!track_mask && !channels && !bitdepth && !audio_rate)
@@ -655,7 +1163,7 @@ char smk_enable_all(smk object, const unsigned char mask)
 {
 	unsigned char i;
 
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 
 	/* set video-enable */
@@ -677,7 +1185,7 @@ error:
 
 char smk_enable_video(smk object, const unsigned char enable)
 {
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 
 	object->video.enable = enable;
@@ -689,7 +1197,7 @@ error:
 
 char smk_enable_audio(smk object, const unsigned char track, const unsigned char enable)
 {
-	/* sanity check */
+	/* null check */
 	smk_assert(object);
 
 	object->audio[track].enable = enable;
@@ -759,7 +1267,7 @@ static char smk_render_palette(struct smk_video_t* s, unsigned char* p, unsigned
 		0xE3, 0xE7, 0xEB, 0xEF, 0xF3, 0xF7, 0xFB, 0xFF
 	};
 
-	/* sanity check */
+	/* null check */
 	smk_assert(s);
 	smk_assert(p);
 
@@ -865,10 +1373,10 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	unsigned long i,j,k, row, col,skip;
 
 	/* used for video decoding */
-	struct smk_bit_t* bs = NULL;
+	struct smk_bit_t bs;
 
 	/* results from a tree lookup */
-	long unpack;
+	int unpack;
 
 	/* unpack, broken into pieces */
 	unsigned char type;
@@ -887,7 +1395,7 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 		57,	58,	59,	128,	256,	512,	1024,	2048
 	};
 
-	/* sanity check */
+	/* null check */
 	smk_assert(s);
 	smk_assert(p);
 
@@ -895,22 +1403,18 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 	col = 0;
 
 	/* Set up a bitstream for video unpacking */
-	bs = smk_bs_init (p, size);
-	if (bs == NULL) {
-		/* error in allocation */
-		fputs("libsmacker::smk_render_video: ERROR: failed to allocate bitstream\n", stderr);
-		return -1;
-	}
+	smk_bs_init (&bs, p, size);
 
 	/* Reset the cache on all bigtrees */
-	smk_huff16_reset(s->tree[0]);
-	smk_huff16_reset(s->tree[1]);
-	smk_huff16_reset(s->tree[2]);
-	smk_huff16_reset(s->tree[3]);
+	for (i = 0; i < 4; i++)
+		memset(&s->tree[i].cache, 0, 3 * sizeof(unsigned short));
 
 	while ( row < s->h )
 	{
-		unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_TYPE]);
+		if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_TYPE], &bs)) < 0) {
+			fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from TYPE tree.\n",stderr);
+			return -1;
+		}
 
 		type = ((unpack & 0x0003));
 		blocklen = ((unpack & 0x00FC) >> 2);
@@ -919,12 +1423,12 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 		/* support for v4 full-blocks */
 		if (type == 1 && s->v == '4')
 		{
-			bit = smk_bs_read_1(bs);
+			bit = smk_bs_read_1(&bs);
 			if (bit)
 			{
 				type = 4;
 			} else {
-				bit = smk_bs_read_1(bs);
+				bit = smk_bs_read_1(&bs);
 				if (bit)
 				{
 					type = 5;
@@ -938,10 +1442,17 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 			switch(type)
 			{
 				case 0:
-					unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_MCLR]);
+					if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_MCLR], &bs)) < 0) {
+						fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from MCLR tree.\n",stderr);
+						return -1;
+					}
 					s1 = (unpack & 0xFF00) >> 8;
 					s2 = (unpack & 0x00FF);
-					unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_MMAP]);
+
+					if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_MMAP], &bs)) < 0) {
+						fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from MMAP tree.\n",stderr);
+						return -1;
+					}
 
 					temp = 0x01;
 					for (k = 0; k < 4; k ++)
@@ -965,10 +1476,16 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 1: /* FULL BLOCK */
 					for (k = 0; k < 4; k ++)
 					{
-						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
+						if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_FULL], &bs)) < 0) {
+							fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from FULL tree.\n",stderr);
+							return -1;
+						}
 						t[skip + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + 2] = (unpack & 0x00FF);
-						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
+						if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_FULL], &bs)) < 0) {
+							fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from FULL tree.\n",stderr);
+							return -1;
+						}
 						t[skip + 1] = ((unpack & 0xFF00) >> 8);
 						t[skip] = (unpack & 0x00FF);
 						skip += s->w;
@@ -999,7 +1516,10 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 4: /* V4 DOUBLE BLOCK */
 					for (k = 0; k < 2; k ++)
 					{
-						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
+						if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_FULL], &bs)) < 0) {
+							fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from FULL tree.\n",stderr);
+							return -1;
+						}
 						for (i = 0; i < 2; i ++)
 						{
 							memset(&t[skip + 2],(unpack & 0xFF00) >> 8,2);
@@ -1011,12 +1531,18 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 				case 5: /* V4 HALF BLOCK */
 					for (k = 0; k < 2; k ++)
 					{
-						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
+						if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_FULL], &bs)) < 0) {
+							fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from FULL tree.\n",stderr);
+							return -1;
+						}
 						t[skip + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + 2] = (unpack & 0x00FF);
 						t[skip + s->w + 3] = ((unpack & 0xFF00) >> 8);
 						t[skip + s->w + 2] = (unpack & 0x00FF);
-						unpack = smk_huff16_lookup(bs,s->tree[SMK_TREE_FULL]);
+						if ( (unpack = smk_huff16_lookup(&s->tree[SMK_TREE_FULL], &bs)) < 0) {
+							fputs("libsmacker::smk_render_video() - ERROR: failed to lookup from FULL tree.\n",stderr);
+							return -1;
+						}
 						t[skip + 1] = ((unpack & 0xFF00) >> 8);
 						t[skip] = (unpack & 0x00FF);
 						t[skip + s->w + 1] = ((unpack & 0xFF00) >> 8);
@@ -1034,12 +1560,9 @@ static char smk_render_video(struct smk_video_t* s, unsigned char* p, unsigned i
 		}
 	}
 
-	smk_bs_free(bs);
-
 	return 0;
 
 error:
-	smk_bs_free(bs);
 	return -1;
 }
 
@@ -1048,15 +1571,15 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 {
 	unsigned int j,k;
 	unsigned char* t = s->buffer;
-	struct smk_bit_t* bs = NULL;
+	struct smk_bit_t bs;
 
 	char bit;
 	short unpack, unpack2;
 
 	/* used for audio decoding */
-	struct smk_huff8_t* aud_tree[4] = {NULL,NULL,NULL,NULL};
+	struct smk_huff8_t aud_tree[4];
 
-	/* sanity check */
+	/* null check */
 	smk_assert(s);
 	smk_assert(p);
 
@@ -1087,9 +1610,9 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 
 		/* Compressed audio: must unpack here */
 		/*  Set up a bitstream */
-		bs = smk_bs_init (p, size);
+		smk_bs_init (&bs, p, size);
 
-		bit = smk_bs_read_1(bs);
+		bit = smk_bs_read_1(&bs);
 
 		if (!bit)
 		{
@@ -1097,34 +1620,34 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 			goto error;
 		}
 
-		bit = smk_bs_read_1(bs);
+		bit = smk_bs_read_1(&bs);
 		if (s->channels != (bit == 1 ? 2 : 1))
 		{
 			fputs("libsmacker::smk_render - ERROR: mono/stereo mismatch\n",stderr);
 		}
-		bit = smk_bs_read_1(bs);
+		bit = smk_bs_read_1(&bs);
 		if (s->bitdepth != (bit == 1 ? 16 : 8))
 		{
 			fputs("libsmacker::smk_render - ERROR: 8-/16-bit mismatch\n",stderr);
 		}
 
 		/* build the trees */
-		aud_tree[0] = smk_huff8_build(bs);
+		smk_huff8_build(&aud_tree[0], &bs);
 		j = 1;
 		k = 1;
 		if (s->bitdepth == 16)
 		{
-			aud_tree[1] = smk_huff8_build(bs);
+			smk_huff8_build(&aud_tree[1], &bs);
 			k = 2;
 		}
 		if (s->channels == 2)
 		{
-			aud_tree[2] = smk_huff8_build(bs);
+			smk_huff8_build(&aud_tree[2], &bs);
 			j = 2;
 			k = 2;
 			if (s->bitdepth == 16)
 			{
-				aud_tree[3] = smk_huff8_build(bs);
+				smk_huff8_build(&aud_tree[3], &bs);
 				k = 4;
 			}
 		}
@@ -1132,10 +1655,10 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		/* read initial sound level */
 		if (s->channels == 2)
 		{
-			unpack = smk_bs_read_8(bs);
+			unpack = smk_bs_read_8(&bs);
 			if (s->bitdepth == 16)
 			{
-				((short*)t)[1] = smk_bs_read_8(bs);
+				((short*)t)[1] = smk_bs_read_8(&bs);
 				((short*)t)[1] |= (unpack << 8);
 			}
 			else
@@ -1143,10 +1666,10 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 				((unsigned char*)t)[1] = (unsigned char)unpack;
 			}
 		}
-		unpack = smk_bs_read_8(bs);
+		unpack = smk_bs_read_8(&bs);
 		if (s->bitdepth == 16)
 		{
-				((short*)t)[0] = smk_bs_read_8(bs);
+				((short*)t)[0] = smk_bs_read_8(&bs);
 				((short*)t)[0] |= (unpack << 8);
 		}
 		else
@@ -1159,15 +1682,15 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 		{
 			if (s->bitdepth == 8)
 			{
-				unpack = smk_huff8_lookup(bs,aud_tree[0]);
+				unpack = smk_huff8_lookup(&aud_tree[0], &bs);
 				((unsigned char*)t)[j] = (char)unpack + ((unsigned char*)t)[j - s->channels];
 				j ++;
 				k++;
 			}
 			else
 			{
-				unpack = smk_huff8_lookup(bs,aud_tree[0]);
-				unpack2 = smk_huff8_lookup(bs,aud_tree[1]);
+				unpack = smk_huff8_lookup(&aud_tree[0], &bs);
+				unpack2 = smk_huff8_lookup(&aud_tree[1], &bs);
 				((short*)t)[j] = (short) ( unpack | (unpack2 << 8) ) + ((short*)t)[j - s->channels];
 				j ++;
 				k+=2;
@@ -1176,49 +1699,26 @@ static char smk_render_audio(struct smk_audio_t* s, unsigned char* p, unsigned l
 			{
 				if (s->bitdepth == 8)
 				{
-					unpack = smk_huff8_lookup(bs,aud_tree[2]);
+					unpack = smk_huff8_lookup(&aud_tree[2], &bs);
 					((unsigned char*)t)[j] = (char)unpack + ((unsigned char*)t)[j - 2];
 					j ++;
 					k++;
 				}
 				else
 				{
-					unpack = smk_huff8_lookup(bs,aud_tree[2]);
-					unpack2 = smk_huff8_lookup(bs,aud_tree[3]);
+					unpack = smk_huff8_lookup(&aud_tree[2], &bs);
+					unpack2 = smk_huff8_lookup(&aud_tree[3], &bs);
 					((short*)t)[j] = (short) ( unpack | (unpack2 << 8) ) + ((short*)t)[j - 2];
 					j ++;
 					k+=2;
 				}
 			}
 		}
-
-		/* All done with the trees, free them. */
-		for (j = 0; j < 4; j ++)
-		{
-			if (aud_tree[j])
-			{
-				smk_huff8_free(aud_tree[j]);
-			}
-		}
-
-		/* free bitstream */
-		smk_free(bs);
 	}
 
 	return 0;
 
 error:
-	/* All done with the trees, free them. */
-	for (j = 0; j < 4; j ++)
-	{
-		if (aud_tree[j])
-		{
-			smk_huff8_free(aud_tree[j]);
-		}
-	}
-
-	smk_free(bs);
-
 	return -1;
 }
 
@@ -1229,7 +1729,7 @@ static char smk_render(smk s)
 	unsigned long i,size;
 	unsigned char* buffer = NULL,* p,track;
 
-	/* sanity check */
+	/* null check */
 	smk_assert(s);
 
 	/* Retrieve current chunk_size for this frame. */
