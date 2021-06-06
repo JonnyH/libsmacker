@@ -4,9 +4,13 @@ AM_CPPFLAGS = -Wall -Wextra
 
 lib_LTLIBRARIES = libsmacker.la
 libsmacker_la_SOURCES = smacker.c
-libsmacker_la_LDFLAGS = -version-info 1:1:1
+libsmacker_la_LDFLAGS = -version-info 1:2:0
 
-noinst_PROGRAMS = driver smk2avi
+noinst_PROGRAMS = perftest driver smk2avi
+
+perftest_SOURCES = perftest.c
+perftest_LDADD = $(lib_LTLIBRARIES)
+perftest_DEPENDENCIES = $(lib_LTLIBRARIES)
 
 driver_SOURCES = driver.c
 driver_LDADD = $(lib_LTLIBRARIES)

@@ -24,19 +24,6 @@
 #include <string.h>
 
 /**
-	Verbose assert:
-		branches to an error block if pointer is null
-*/
-#define smk_assert(p) \
-{ \
-	if (!p) \
-	{ \
-		fprintf(stderr, "libsmacker::smk_assert(" #p "): ERROR: NULL POINTER at line %lu, file %s\n", (unsigned long)__LINE__, __FILE__); \
-		goto error; \
-	} \
-}
-
-/**
 	Safe free: attempts to prevent double-free by setting pointer to NULL.
 		Optionally warns on attempts to free a NULL pointer.
 */
